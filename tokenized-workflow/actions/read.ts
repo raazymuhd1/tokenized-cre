@@ -35,14 +35,13 @@ function fetchTokensPrices(runtime: Runtime<Config>, tokens: Token[]): string {
     const totalTokenValue: string = ""
 
     for(const token of tokens) {
-
         if(supportedTokensPriceFeeds.includes(token)) {
             runtime.log(`unsupported tokens ${token.address}`)
             continue;
         }
-
         const priceFeeds = new ethers.Contract(token.address, aggregatorV3InterfaceABI, provider)
         let price: string = "";
+
         priceFeeds.latestRoundData()
         .then(data => {
             runtime.log(`price for token ${token.name} is ${data}`)
@@ -55,14 +54,14 @@ function fetchTokensPrices(runtime: Runtime<Config>, tokens: Token[]): string {
 }
 
 /**
- * @dev calculate share and mint/redeem
+ * @dev calculate share for mint/redeem
  * @param runtime 
  * @param tokens 
  */
 const calculateShare = (runtime: Runtime<Config>, tokens: Token[]) => {
     const tokensValue = fetchTokensPrices(runtime, supportedTokensPriceFeeds.slice(0, 3))
 
-    
+
 }
 
 
