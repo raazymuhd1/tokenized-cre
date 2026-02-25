@@ -1,2 +1,2 @@
 
-simulate:; cre workflow simulate tokenized-workflow --target staging-settings -v
+simulate:; cre workflow simulate tokenized-workflow --target staging-settings -v -g

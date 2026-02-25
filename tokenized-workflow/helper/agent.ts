@@ -110,6 +110,6 @@ async function getMarketAnswer(runtime: Runtime<Config>, question: string, marke
 
 
 export {
-  getMarketQuestion,
-  getMarketAnswer
+  // getMarketQuestion,
+  // getMarketAnswer
 }

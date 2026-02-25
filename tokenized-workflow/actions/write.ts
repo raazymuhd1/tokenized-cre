@@ -6,18 +6,20 @@ import {
 import { setup, reportSign, reportWrite } from "../helper"
 import type { Config, Token } from "../types"
 import { calculateShare } from "./read"
-import { supportedTokensPriceFeeds } from "../constants"
 
 function handleDepositCollaterals(
   runtime: Runtime<Config>,
   collaterals: Token[],
   user: string
-) {
+): string {
     const { network, evmConfig } = setup(runtime)
     const evmClient = new EVMClient(network.chainSelector.selector)
-    const filteredCollaterals = collaterals.filter(col => col.address)
-    const collateralsAmounts = collaterals.filter(colla => BigInt(colla.amount))
-    const sharesToMint = calculateShare(runtime, collaterals)
+    let filteredCollaterals: string[] = [], 
+    collateralsAmounts: bigint[] = []
+
+    collaterals.forEach(colla => collateralsAmounts.push(BigInt(colla.amount)))
+    collaterals.forEach(col => filteredCollaterals.push(col.address))
+    const sharesToMint = calculateShare(runtime, collaterals, evmClient)
 
     try {
         runtime.log('signing a collateral deposit report')
@@ -26,7 +28,7 @@ function handleDepositCollaterals(
          [
            true, // idDeposit
            0, // tokenId
-           "", // user addr
+           user, // user addr
            filteredCollaterals, // collaterals
            collateralsAmounts, // token amounts
            sharesToMint // shares to mint
@@ -41,6 +43,7 @@ function handleDepositCollaterals(
      return txHash;
     } catch (error) {
         runtime.log(`[Deposit-Collateral]: something went wrong on deposit collateral ${error}`)
+        return ""
     }
 }
 
@@ -48,7 +51,7 @@ function handleRedeemCollaterals(
   runtime: Runtime<Config>,
   collaterals: Token[],
   user: string
-) {
+): string {
     const { network, evmConfig } = setup(runtime)
     const evmClient = new EVMClient(network.chainSelector.selector)
     const sharesToBurn = calculateShare(runtime, collaterals)
@@ -74,6 +77,7 @@ function handleRedeemCollaterals(
      return txHash;
     } catch (error) {
         runtime.log(`[Redeem-Collateral]: something went wrong on redeem collateral ${error}`)
+        return ""
     }
 }
 

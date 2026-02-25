@@ -5,46 +5,76 @@ import type {
 import type { Config, Token } from "../types"
 import { readOnchain } from "../helper"
 import { ethers } from "ethers"
-import { aggregatorV3InterfaceABI } from "../contracts/abi/aggregatorV3"
+import { aggregatorV3Interface } from "../contracts"
 import { supportedTokensPriceFeeds } from "../constants"
 
+type TokenPrices = (string|bigint)[][]
 
-function fetchTokensPrices(runtime: Runtime<Config>, tokens: Token[]): string {
-    const rpcUrl = runtime.getSecret({ id: "SEPOLIA_RPC" }).result()
-    const provider = new ethers.JsonRpcProvider(rpcUrl.value)
-    const totalTokenValue: string = ""
+function fetchTokensPrices(
+    runtime: Runtime<Config>, 
+    evmClient: EVMClient,
+    tokens: Token[]
+): TokenPrices {
+    let tokenPricesInUsd: TokenPrices = []
+    let supportedTokensAddresses: string[] = [];
+
+    supportedTokensPriceFeeds.forEach(token => {
+        supportedTokensAddresses.push(token.address)
+    })
 
     for(const token of tokens) {
-        if(supportedTokensPriceFeeds.includes(token)) {
+        if(!supportedTokensAddresses.includes(token.address)) {
             runtime.log(`unsupported tokens ${token.address}`)
             continue;
         }
-        const priceFeeds = new ethers.Contract(token.address, aggregatorV3InterfaceABI, provider)
-        let price: string = "";
+        
+        const priceData = readOnchain<any>(
+            runtime, 
+            evmClient,
+            aggregatorV3Interface,
+            "latestRoundData",
+            token.address,
+            []
+        )
 
-        priceFeeds.latestRoundData()
-        .then(data => {
-            runtime.log(`price for token ${token.name} is ${data}`)
-            price = data;
-        })
-        .catch(err => runtime.log(`fetching price data failed ${err}`))
-    }
+        const tokenPrice = String(Object.values(priceData)[1])
+        runtime.log(`price of token ${token.name} is ${tokenPrice.slice(0, tokenPrice.length-7)}`)
 
-    return "tokens"
+        tokenPricesInUsd.push([
+            token.name,
+            BigInt(Number(tokenPrice) * token.amount)
+        ]) 
+
+        }
+
+    runtime.log(`token prices in USD ${tokenPricesInUsd}`)
+    return tokenPricesInUsd;
 }
 
+// #TODO: implement this function to find a correct shares amount (mint/redeem)
 /**
  * @dev calculate share for mint/redeem
  * @param runtime 
  * @param tokens 
  */
-const calculateShare = (runtime: Runtime<Config>, tokens: Token[]): bigint => {
-    const tokensValue = fetchTokensPrices(runtime, supportedTokensPriceFeeds.slice(0, 3))
+const calculateShare = (
+    runtime: Runtime<Config>, 
+    tokens: Token[],
+    evmClient: EVMClient
+): bigint => {
+    const tokensValue = fetchTokensPrices(runtime, evmClient,supportedTokensPriceFeeds.slice(0, 3))
+    let totalCollateralValueInUsd: bigint = 0n;
+    
+    tokensValue.forEach(price => {
+        totalCollateralValueInUsd += (price[1] as bigint)
+        runtime.log(`[CALCULATING-SHARE]: token ${price[0]} is ${price[1]}`)
+    })
 
-    return 100n
+    return totalCollateralValueInUsd
 }
 
 
 export {
-    calculateShare
+    calculateShare,
+    fetchTokensPrices
 }

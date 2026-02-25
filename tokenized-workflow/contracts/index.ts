@@ -1,2 +1,1 @@
-export { market } from "./abi/marketInterface"
-export { oracle } from "./abi/oracleInterface"
+export { default as aggregatorV3Interface } from "./abi/aggregatorV3"

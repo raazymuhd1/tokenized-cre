@@ -4,7 +4,7 @@ import {
     LATEST_BLOCK_NUMBER,
     encodeCallMsg
 } from "@chainlink/cre-sdk";
-import { encodeAbiParameters, parseAbiParameters, zeroAddress, encodeFunctionData, decodeFunctionResult, Address, bytesToHex } from "viem"
+import { encodeAbiParameters, parseAbiParameters, zeroAddress, encodeFunctionData, decodeFunctionResult, Address, bytesToHex, Abi } from "viem"
 import type { Config, EvmConfig, SetupData, MappedReadOnchain } from "../types";
 
 type HexString = `0x${string}`
@@ -70,7 +70,7 @@ function reportWrite(runtime: Runtime<Config>, signedReport: Report, evmConfig: 
 function readOnchain<T>(
     runtime: Runtime<Config>,
     evmClient: EVMClient,
-    contractAbi: any,
+    contractAbi: Abi,
     funcName: string,
     contractAddr: string,
     args?: any[]

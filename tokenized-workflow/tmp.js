@@ -78,19 +78,123 @@ var init_regex = __esm(() => {
   integerRegex = /^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/;
   isTupleRegex = /^\(.+?\).*?$/;
 });
+function formatAbiParameter(abiParameter) {
+  let type = abiParameter.type;
+  if (tupleRegex.test(abiParameter.type) && "components" in abiParameter) {
+    type = "(";
+    const length = abiParameter.components.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      const component = abiParameter.components[i2];
+      type += formatAbiParameter(component);
+      if (i2 < length - 1)
+        type += ", ";
+    }
+    const result = execTyped(tupleRegex, abiParameter.type);
+    type += `)${result?.array ?? ""}`;
+    return formatAbiParameter({
+      ...abiParameter,
+      type
+    });
+  }
+  if ("indexed" in abiParameter && abiParameter.indexed)
+    type = `${type} indexed`;
+  if (abiParameter.name)
+    return `${type} ${abiParameter.name}`;
+  return type;
+}
+var tupleRegex;
+var init_formatAbiParameter = __esm(() => {
+  init_regex();
+  tupleRegex = /^tuple(?<array>(\[(\d*)\])*)$/;
+});
+function formatAbiParameters(abiParameters) {
+  let params = "";
+  const length = abiParameters.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const abiParameter = abiParameters[i2];
+    params += formatAbiParameter(abiParameter);
+    if (i2 !== length - 1)
+      params += ", ";
+  }
+  return params;
+}
+var init_formatAbiParameters = __esm(() => {
+  init_formatAbiParameter();
+});
+function formatAbiItem(abiItem) {
+  if (abiItem.type === "function")
+    return `function ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})${abiItem.stateMutability && abiItem.stateMutability !== "nonpayable" ? ` ${abiItem.stateMutability}` : ""}${abiItem.outputs?.length ? ` returns (${formatAbiParameters(abiItem.outputs)})` : ""}`;
+  if (abiItem.type === "event")
+    return `event ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})`;
+  if (abiItem.type === "error")
+    return `error ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})`;
+  if (abiItem.type === "constructor")
+    return `constructor(${formatAbiParameters(abiItem.inputs)})${abiItem.stateMutability === "payable" ? " payable" : ""}`;
+  if (abiItem.type === "fallback")
+    return `fallback() external${abiItem.stateMutability === "payable" ? " payable" : ""}`;
+  return "receive() external payable";
+}
+var init_formatAbiItem = __esm(() => {
+  init_formatAbiParameters();
+});
+function isErrorSignature(signature) {
+  return errorSignatureRegex.test(signature);
+}
+function execErrorSignature(signature) {
+  return execTyped(errorSignatureRegex, signature);
+}
+function isEventSignature(signature) {
+  return eventSignatureRegex.test(signature);
+}
+function execEventSignature(signature) {
+  return execTyped(eventSignatureRegex, signature);
+}
+function isFunctionSignature(signature) {
+  return functionSignatureRegex.test(signature);
+}
+function execFunctionSignature(signature) {
+  return execTyped(functionSignatureRegex, signature);
+}
 function isStructSignature(signature) {
   return structSignatureRegex.test(signature);
 }
 function execStructSignature(signature) {
   return execTyped(structSignatureRegex, signature);
 }
+function isConstructorSignature(signature) {
+  return constructorSignatureRegex.test(signature);
+}
+function execConstructorSignature(signature) {
+  return execTyped(constructorSignatureRegex, signature);
+}
+function isFallbackSignature(signature) {
+  return fallbackSignatureRegex.test(signature);
+}
+function execFallbackSignature(signature) {
+  return execTyped(fallbackSignatureRegex, signature);
+}
+function isReceiveSignature(signature) {
+  return receiveSignatureRegex.test(signature);
+}
+var errorSignatureRegex;
+var eventSignatureRegex;
+var functionSignatureRegex;
 var structSignatureRegex;
+var constructorSignatureRegex;
+var fallbackSignatureRegex;
+var receiveSignatureRegex;
 var modifiers;
 var eventModifiers;
 var functionModifiers;
 var init_signatures = __esm(() => {
   init_regex();
+  errorSignatureRegex = /^error (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)$/;
+  eventSignatureRegex = /^event (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)$/;
+  functionSignatureRegex = /^function (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)(?: (?<scope>external|public{1}))?(?: (?<stateMutability>pure|view|nonpayable|payable{1}))?(?: returns\s?\((?<returns>.*?)\))?$/;
   structSignatureRegex = /^struct (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*) \{(?<properties>.*?)\}$/;
+  constructorSignatureRegex = /^constructor\((?<parameters>.*?)\)(?:\s(?<stateMutability>payable{1}))?$/;
+  fallbackSignatureRegex = /^fallback\(\) external(?:\s(?<stateMutability>payable{1}))?$/;
+  receiveSignatureRegex = /^receive\(\) external payable$/;
   modifiers = new Set([
     "memory",
     "indexed",
@@ -137,7 +241,6 @@ var init_abiItem = __esm(() => {
     }
   };
 });
-var InvalidAbiParametersError;
 var InvalidParameterError;
 var SolidityProtectedKeywordError;
 var InvalidModifierError;
@@ -145,20 +248,6 @@ var InvalidFunctionModifierError;
 var InvalidAbiTypeParameterError;
 var init_abiParameter = __esm(() => {
   init_errors();
-  InvalidAbiParametersError = class InvalidAbiParametersError2 extends BaseError {
-    constructor({ params }) {
-      super("Failed to parse ABI parameters.", {
-        details: `parseAbiParameters(${JSON.stringify(params, null, 2)})`,
-        docsPath: "/api/human#parseabiparameters-1"
-      });
-      Object.defineProperty(this, "name", {
-        enumerable: true,
-        configurable: true,
-        writable: true,
-        value: "InvalidAbiParametersError"
-      });
-    }
-  };
   InvalidParameterError = class InvalidParameterError2 extends BaseError {
     constructor({ param }) {
       super("Invalid ABI parameter.", {
@@ -237,6 +326,7 @@ var init_abiParameter = __esm(() => {
   };
 });
 var InvalidSignatureError;
+var UnknownSignatureError;
 var InvalidStructSignatureError;
 var init_signature = __esm(() => {
   init_errors();
@@ -250,6 +340,19 @@ var init_signature = __esm(() => {
         configurable: true,
         writable: true,
         value: "InvalidSignatureError"
+      });
+    }
+  };
+  UnknownSignatureError = class UnknownSignatureError2 extends BaseError {
+    constructor({ signature }) {
+      super("Unknown signature.", {
+        details: signature
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "UnknownSignatureError"
       });
     }
   };
@@ -375,6 +478,108 @@ var init_cache = __esm(() => {
     ]
   ]);
 });
+function parseSignature(signature, structs = {}) {
+  if (isFunctionSignature(signature))
+    return parseFunctionSignature(signature, structs);
+  if (isEventSignature(signature))
+    return parseEventSignature(signature, structs);
+  if (isErrorSignature(signature))
+    return parseErrorSignature(signature, structs);
+  if (isConstructorSignature(signature))
+    return parseConstructorSignature(signature, structs);
+  if (isFallbackSignature(signature))
+    return parseFallbackSignature(signature);
+  if (isReceiveSignature(signature))
+    return {
+      type: "receive",
+      stateMutability: "payable"
+    };
+  throw new UnknownSignatureError({ signature });
+}
+function parseFunctionSignature(signature, structs = {}) {
+  const match = execFunctionSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "function" });
+  const inputParams = splitParameters(match.parameters);
+  const inputs = [];
+  const inputLength = inputParams.length;
+  for (let i2 = 0;i2 < inputLength; i2++) {
+    inputs.push(parseAbiParameter(inputParams[i2], {
+      modifiers: functionModifiers,
+      structs,
+      type: "function"
+    }));
+  }
+  const outputs = [];
+  if (match.returns) {
+    const outputParams = splitParameters(match.returns);
+    const outputLength = outputParams.length;
+    for (let i2 = 0;i2 < outputLength; i2++) {
+      outputs.push(parseAbiParameter(outputParams[i2], {
+        modifiers: functionModifiers,
+        structs,
+        type: "function"
+      }));
+    }
+  }
+  return {
+    name: match.name,
+    type: "function",
+    stateMutability: match.stateMutability ?? "nonpayable",
+    inputs,
+    outputs
+  };
+}
+function parseEventSignature(signature, structs = {}) {
+  const match = execEventSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "event" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], {
+      modifiers: eventModifiers,
+      structs,
+      type: "event"
+    }));
+  return { name: match.name, type: "event", inputs: abiParameters };
+}
+function parseErrorSignature(signature, structs = {}) {
+  const match = execErrorSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "error" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], { structs, type: "error" }));
+  return { name: match.name, type: "error", inputs: abiParameters };
+}
+function parseConstructorSignature(signature, structs = {}) {
+  const match = execConstructorSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "constructor" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], { structs, type: "constructor" }));
+  return {
+    type: "constructor",
+    stateMutability: match.stateMutability ?? "nonpayable",
+    inputs: abiParameters
+  };
+}
+function parseFallbackSignature(signature) {
+  const match = execFallbackSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "fallback" });
+  return {
+    type: "fallback",
+    stateMutability: match.stateMutability ?? "nonpayable"
+  };
+}
 function parseAbiParameter(param, options) {
   const parameterCacheKey = getParameterCacheKey(param, options?.type, options?.structs);
   if (parameterCache.has(parameterCacheKey))
@@ -472,6 +677,7 @@ var init_utils = __esm(() => {
   init_regex();
   init_abiItem();
   init_abiParameter();
+  init_signature();
   init_splitParameters();
   init_cache();
   init_signatures();
@@ -558,41 +764,45 @@ var init_structs = __esm(() => {
   init_utils();
   typeWithoutTupleRegex = /^(?<type>[a-zA-Z$_][a-zA-Z0-9$_]*)(?<array>(?:\[\d*?\])+?)?$/;
 });
-function parseAbiParameters(params) {
-  const abiParameters = [];
-  if (typeof params === "string") {
-    const parameters = splitParameters(params);
-    const length = parameters.length;
-    for (let i2 = 0;i2 < length; i2++) {
-      abiParameters.push(parseAbiParameter(parameters[i2], { modifiers }));
-    }
-  } else {
-    const structs = parseStructs(params);
-    const length = params.length;
-    for (let i2 = 0;i2 < length; i2++) {
-      const signature = params[i2];
-      if (isStructSignature(signature))
-        continue;
-      const parameters = splitParameters(signature);
-      const length2 = parameters.length;
-      for (let k = 0;k < length2; k++) {
-        abiParameters.push(parseAbiParameter(parameters[k], { modifiers, structs }));
-      }
-    }
+function parseAbi(signatures) {
+  const structs = parseStructs(signatures);
+  const abi = [];
+  const length = signatures.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const signature = signatures[i2];
+    if (isStructSignature(signature))
+      continue;
+    abi.push(parseSignature(signature, structs));
   }
-  if (abiParameters.length === 0)
-    throw new InvalidAbiParametersError({ params });
-  return abiParameters;
+  return abi;
 }
-var init_parseAbiParameters = __esm(() => {
-  init_abiParameter();
+var init_parseAbi = __esm(() => {
   init_signatures();
   init_structs();
   init_utils();
-  init_utils();
 });
 var init_exports = __esm(() => {
-  init_parseAbiParameters();
+  init_formatAbiItem();
+  init_parseAbi();
+});
+function formatAbiItem2(abiItem, { includeName = false } = {}) {
+  if (abiItem.type !== "function" && abiItem.type !== "event" && abiItem.type !== "error")
+    throw new InvalidDefinitionTypeError(abiItem.type);
+  return `${abiItem.name}(${formatAbiParams(abiItem.inputs, { includeName })})`;
+}
+function formatAbiParams(params, { includeName = false } = {}) {
+  if (!params)
+    return "";
+  return params.map((param) => formatAbiParam(param, { includeName })).join(includeName ? ", " : ",");
+}
+function formatAbiParam(param, { includeName }) {
+  if (param.type.startsWith("tuple")) {
+    return `(${formatAbiParams(param.components, { includeName })})${param.type.slice("tuple".length)}`;
+  }
+  return param.type + (includeName && param.name ? ` ${param.name}` : "");
+}
+var init_formatAbiItem2 = __esm(() => {
+  init_abi();
 });
 function isHex(value2, { strict = true } = {}) {
   if (!value2)
@@ -695,14 +905,62 @@ var init_base = __esm(() => {
     }
   };
 });
+var AbiDecodingDataSizeTooSmallError;
+var AbiDecodingZeroDataError;
 var AbiEncodingArrayLengthMismatchError;
 var AbiEncodingBytesSizeMismatchError;
 var AbiEncodingLengthMismatchError;
+var AbiFunctionNotFoundError;
+var AbiFunctionOutputsNotFoundError;
+var AbiItemAmbiguityError;
 var InvalidAbiEncodingTypeError;
+var InvalidAbiDecodingTypeError;
 var InvalidArrayError;
+var InvalidDefinitionTypeError;
 var init_abi = __esm(() => {
+  init_formatAbiItem2();
   init_size();
   init_base();
+  AbiDecodingDataSizeTooSmallError = class AbiDecodingDataSizeTooSmallError2 extends BaseError2 {
+    constructor({ data, params, size: size2 }) {
+      super([`Data size of ${size2} bytes is too small for given parameters.`].join(`
+`), {
+        metaMessages: [
+          `Params: (${formatAbiParams(params, { includeName: true })})`,
+          `Data:   ${data} (${size2} bytes)`
+        ],
+        name: "AbiDecodingDataSizeTooSmallError"
+      });
+      Object.defineProperty(this, "data", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "params", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "size", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.data = data;
+      this.params = params;
+      this.size = size2;
+    }
+  };
+  AbiDecodingZeroDataError = class AbiDecodingZeroDataError2 extends BaseError2 {
+    constructor() {
+      super('Cannot decode zero data ("0x") with ABI parameters.', {
+        name: "AbiDecodingZeroDataError"
+      });
+    }
+  };
   AbiEncodingArrayLengthMismatchError = class AbiEncodingArrayLengthMismatchError2 extends BaseError2 {
     constructor({ expectedLength, givenLength, type }) {
       super([
@@ -728,6 +986,45 @@ var init_abi = __esm(() => {
 `), { name: "AbiEncodingLengthMismatchError" });
     }
   };
+  AbiFunctionNotFoundError = class AbiFunctionNotFoundError2 extends BaseError2 {
+    constructor(functionName, { docsPath } = {}) {
+      super([
+        `Function ${functionName ? `"${functionName}" ` : ""}not found on ABI.`,
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionNotFoundError"
+      });
+    }
+  };
+  AbiFunctionOutputsNotFoundError = class AbiFunctionOutputsNotFoundError2 extends BaseError2 {
+    constructor(functionName, { docsPath }) {
+      super([
+        `Function "${functionName}" does not contain any \`outputs\` on ABI.`,
+        "Cannot decode function result without knowing what the parameter types are.",
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionOutputsNotFoundError"
+      });
+    }
+  };
+  AbiItemAmbiguityError = class AbiItemAmbiguityError2 extends BaseError2 {
+    constructor(x, y) {
+      super("Found ambiguous types in overloaded ABI items.", {
+        metaMessages: [
+          `\`${x.type}\` in \`${formatAbiItem2(x.abiItem)}\`, and`,
+          `\`${y.type}\` in \`${formatAbiItem2(y.abiItem)}\``,
+          "",
+          "These types encode differently and cannot be distinguished at runtime.",
+          "Remove one of the ambiguous items in the ABI."
+        ],
+        name: "AbiItemAmbiguityError"
+      });
+    }
+  };
   InvalidAbiEncodingTypeError = class InvalidAbiEncodingTypeError2 extends BaseError2 {
     constructor(type, { docsPath }) {
       super([
@@ -737,12 +1034,30 @@ var init_abi = __esm(() => {
 `), { docsPath, name: "InvalidAbiEncodingType" });
     }
   };
+  InvalidAbiDecodingTypeError = class InvalidAbiDecodingTypeError2 extends BaseError2 {
+    constructor(type, { docsPath }) {
+      super([
+        `Type "${type}" is not a valid decoding type.`,
+        "Please provide a valid ABI type."
+      ].join(`
+`), { docsPath, name: "InvalidAbiDecodingType" });
+    }
+  };
   InvalidArrayError = class InvalidArrayError2 extends BaseError2 {
     constructor(value2) {
       super([`Value "${value2}" is not a valid array.`].join(`
 `), {
         name: "InvalidArrayError"
       });
+    }
+  };
+  InvalidDefinitionTypeError = class InvalidDefinitionTypeError2 extends BaseError2 {
+    constructor(type) {
+      super([
+        `"${type}" is not a valid definition type.`,
+        'Valid types: "function", "event", "error"'
+      ].join(`
+`), { name: "InvalidDefinitionTypeError" });
     }
   };
 });
@@ -798,6 +1113,7 @@ var init_pad = __esm(() => {
   init_data();
 });
 var IntegerOutOfRangeError;
+var InvalidBytesBooleanError;
 var SizeOverflowError;
 var init_encoding = __esm(() => {
   init_base();
@@ -806,18 +1122,58 @@ var init_encoding = __esm(() => {
       super(`Number "${value2}" is not in safe ${size2 ? `${size2 * 8}-bit ${signed ? "signed" : "unsigned"} ` : ""}integer range ${max ? `(${min} to ${max})` : `(above ${min})`}`, { name: "IntegerOutOfRangeError" });
     }
   };
+  InvalidBytesBooleanError = class InvalidBytesBooleanError2 extends BaseError2 {
+    constructor(bytes) {
+      super(`Bytes value "${bytes}" is not a valid boolean. The bytes array must contain a single byte of either a 0 or 1 value.`, {
+        name: "InvalidBytesBooleanError"
+      });
+    }
+  };
   SizeOverflowError = class SizeOverflowError2 extends BaseError2 {
     constructor({ givenSize, maxSize }) {
       super(`Size cannot exceed ${maxSize} bytes. Given size: ${givenSize} bytes.`, { name: "SizeOverflowError" });
     }
   };
 });
+function trim(hexOrBytes, { dir = "left" } = {}) {
+  let data = typeof hexOrBytes === "string" ? hexOrBytes.replace("0x", "") : hexOrBytes;
+  let sliceLength = 0;
+  for (let i2 = 0;i2 < data.length - 1; i2++) {
+    if (data[dir === "left" ? i2 : data.length - i2 - 1].toString() === "0")
+      sliceLength++;
+    else
+      break;
+  }
+  data = dir === "left" ? data.slice(sliceLength) : data.slice(0, data.length - sliceLength);
+  if (typeof hexOrBytes === "string") {
+    if (data.length === 1 && dir === "right")
+      data = `${data}0`;
+    return `0x${data.length % 2 === 1 ? `0${data}` : data}`;
+  }
+  return data;
+}
 function assertSize2(hexOrBytes, { size: size2 }) {
   if (size(hexOrBytes) > size2)
     throw new SizeOverflowError({
       givenSize: size(hexOrBytes),
       maxSize: size2
     });
+}
+function hexToBigInt(hex, opts = {}) {
+  const { signed } = opts;
+  if (opts.size)
+    assertSize2(hex, { size: opts.size });
+  const value2 = BigInt(hex);
+  if (!signed)
+    return value2;
+  const size2 = (hex.length - 2) / 2;
+  const max = (1n << BigInt(size2) * 8n - 1n) - 1n;
+  if (value2 <= max)
+    return value2;
+  return value2 - BigInt(`0x${"f".padStart(size2 * 2, "f")}`) - 1n;
+}
+function hexToNumber(hex, opts = {}) {
+  return Number(hexToBigInt(hex, opts));
 }
 var init_fromHex = __esm(() => {
   init_encoding();
@@ -831,7 +1187,7 @@ function toHex(value2, opts = {}) {
   }
   if (typeof value2 === "boolean")
     return boolToHex(value2, opts);
-  return bytesToHex2(value2, opts);
+  return bytesToHex(value2, opts);
 }
 function boolToHex(value2, opts = {}) {
   const hex = `0x${Number(value2)}`;
@@ -841,7 +1197,7 @@ function boolToHex(value2, opts = {}) {
   }
   return hex;
 }
-function bytesToHex2(value2, opts = {}) {
+function bytesToHex(value2, opts = {}) {
   let string = "";
   for (let i2 = 0;i2 < value2.length; i2++) {
     string += hexes[value2[i2]];
@@ -883,7 +1239,7 @@ function numberToHex(value_, opts = {}) {
 }
 function stringToHex(value_, opts = {}) {
   const value2 = encoder.encode(value_);
-  return bytesToHex2(value2, opts);
+  return bytesToHex(value2, opts);
 }
 var hexes;
 var encoder;
@@ -1276,6 +1632,83 @@ var init_keccak256 = __esm(() => {
   init_toBytes();
   init_toHex();
 });
+function hashSignature(sig) {
+  return hash(sig);
+}
+var hash = (value2) => keccak256(toBytes(value2));
+var init_hashSignature = __esm(() => {
+  init_toBytes();
+  init_keccak256();
+});
+function normalizeSignature(signature) {
+  let active = true;
+  let current = "";
+  let level = 0;
+  let result = "";
+  let valid = false;
+  for (let i2 = 0;i2 < signature.length; i2++) {
+    const char = signature[i2];
+    if (["(", ")", ","].includes(char))
+      active = true;
+    if (char === "(")
+      level++;
+    if (char === ")")
+      level--;
+    if (!active)
+      continue;
+    if (level === 0) {
+      if (char === " " && ["event", "function", ""].includes(result))
+        result = "";
+      else {
+        result += char;
+        if (char === ")") {
+          valid = true;
+          break;
+        }
+      }
+      continue;
+    }
+    if (char === " ") {
+      if (signature[i2 - 1] !== "," && current !== "," && current !== ",(") {
+        current = "";
+        active = false;
+      }
+      continue;
+    }
+    result += char;
+    current += char;
+  }
+  if (!valid)
+    throw new BaseError2("Unable to normalize signature.");
+  return result;
+}
+var init_normalizeSignature = __esm(() => {
+  init_base();
+});
+var toSignature = (def) => {
+  const def_ = (() => {
+    if (typeof def === "string")
+      return def;
+    return formatAbiItem(def);
+  })();
+  return normalizeSignature(def_);
+};
+var init_toSignature = __esm(() => {
+  init_exports();
+  init_normalizeSignature();
+});
+function toSignatureHash(fn) {
+  return hashSignature(toSignature(fn));
+}
+var init_toSignatureHash = __esm(() => {
+  init_hashSignature();
+  init_toSignature();
+});
+var toEventSelector;
+var init_toEventSelector = __esm(() => {
+  init_toSignatureHash();
+  toEventSelector = toSignatureHash;
+});
 var InvalidAddressError;
 var init_address = __esm(() => {
   init_base();
@@ -1327,13 +1760,13 @@ function checksumAddress(address_, chainId) {
   if (checksumAddressCache.has(`${address_}.${chainId}`))
     return checksumAddressCache.get(`${address_}.${chainId}`);
   const hexAddress = chainId ? `${chainId}${address_.toLowerCase()}` : address_.substring(2).toLowerCase();
-  const hash = keccak256(stringToBytes(hexAddress), "bytes");
+  const hash2 = keccak256(stringToBytes(hexAddress), "bytes");
   const address = (chainId ? hexAddress.substring(`${chainId}0x`.length) : hexAddress).split("");
   for (let i2 = 0;i2 < 40; i2 += 2) {
-    if (hash[i2 >> 1] >> 4 >= 8 && address[i2]) {
+    if (hash2[i2 >> 1] >> 4 >= 8 && address[i2]) {
       address[i2] = address[i2].toUpperCase();
     }
-    if ((hash[i2 >> 1] & 15) >= 8 && address[i2 + 1]) {
+    if ((hash2[i2 >> 1] & 15) >= 8 && address[i2 + 1]) {
       address[i2 + 1] = address[i2 + 1].toUpperCase();
     }
   }
@@ -1662,6 +2095,620 @@ var init_encodeAbiParameters = __esm(() => {
   init_slice();
   init_toHex();
   init_regex2();
+});
+var toFunctionSelector = (fn) => slice(toSignatureHash(fn), 0, 4);
+var init_toFunctionSelector = __esm(() => {
+  init_slice();
+  init_toSignatureHash();
+});
+function getAbiItem(parameters) {
+  const { abi, args = [], name } = parameters;
+  const isSelector = isHex(name, { strict: false });
+  const abiItems = abi.filter((abiItem) => {
+    if (isSelector) {
+      if (abiItem.type === "function")
+        return toFunctionSelector(abiItem) === name;
+      if (abiItem.type === "event")
+        return toEventSelector(abiItem) === name;
+      return false;
+    }
+    return "name" in abiItem && abiItem.name === name;
+  });
+  if (abiItems.length === 0)
+    return;
+  if (abiItems.length === 1)
+    return abiItems[0];
+  let matchedAbiItem = undefined;
+  for (const abiItem of abiItems) {
+    if (!("inputs" in abiItem))
+      continue;
+    if (!args || args.length === 0) {
+      if (!abiItem.inputs || abiItem.inputs.length === 0)
+        return abiItem;
+      continue;
+    }
+    if (!abiItem.inputs)
+      continue;
+    if (abiItem.inputs.length === 0)
+      continue;
+    if (abiItem.inputs.length !== args.length)
+      continue;
+    const matched = args.every((arg, index) => {
+      const abiParameter = "inputs" in abiItem && abiItem.inputs[index];
+      if (!abiParameter)
+        return false;
+      return isArgOfType(arg, abiParameter);
+    });
+    if (matched) {
+      if (matchedAbiItem && "inputs" in matchedAbiItem && matchedAbiItem.inputs) {
+        const ambiguousTypes = getAmbiguousTypes(abiItem.inputs, matchedAbiItem.inputs, args);
+        if (ambiguousTypes)
+          throw new AbiItemAmbiguityError({
+            abiItem,
+            type: ambiguousTypes[0]
+          }, {
+            abiItem: matchedAbiItem,
+            type: ambiguousTypes[1]
+          });
+      }
+      matchedAbiItem = abiItem;
+    }
+  }
+  if (matchedAbiItem)
+    return matchedAbiItem;
+  return abiItems[0];
+}
+function isArgOfType(arg, abiParameter) {
+  const argType = typeof arg;
+  const abiParameterType = abiParameter.type;
+  switch (abiParameterType) {
+    case "address":
+      return isAddress(arg, { strict: false });
+    case "bool":
+      return argType === "boolean";
+    case "function":
+      return argType === "string";
+    case "string":
+      return argType === "string";
+    default: {
+      if (abiParameterType === "tuple" && "components" in abiParameter)
+        return Object.values(abiParameter.components).every((component, index) => {
+          return isArgOfType(Object.values(arg)[index], component);
+        });
+      if (/^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/.test(abiParameterType))
+        return argType === "number" || argType === "bigint";
+      if (/^bytes([1-9]|1[0-9]|2[0-9]|3[0-2])?$/.test(abiParameterType))
+        return argType === "string" || arg instanceof Uint8Array;
+      if (/[a-z]+[1-9]{0,3}(\[[0-9]{0,}\])+$/.test(abiParameterType)) {
+        return Array.isArray(arg) && arg.every((x) => isArgOfType(x, {
+          ...abiParameter,
+          type: abiParameterType.replace(/(\[[0-9]{0,}\])$/, "")
+        }));
+      }
+      return false;
+    }
+  }
+}
+function getAmbiguousTypes(sourceParameters, targetParameters, args) {
+  for (const parameterIndex in sourceParameters) {
+    const sourceParameter = sourceParameters[parameterIndex];
+    const targetParameter = targetParameters[parameterIndex];
+    if (sourceParameter.type === "tuple" && targetParameter.type === "tuple" && "components" in sourceParameter && "components" in targetParameter)
+      return getAmbiguousTypes(sourceParameter.components, targetParameter.components, args[parameterIndex]);
+    const types4 = [sourceParameter.type, targetParameter.type];
+    const ambiguous = (() => {
+      if (types4.includes("address") && types4.includes("bytes20"))
+        return true;
+      if (types4.includes("address") && types4.includes("string"))
+        return isAddress(args[parameterIndex], { strict: false });
+      if (types4.includes("address") && types4.includes("bytes"))
+        return isAddress(args[parameterIndex], { strict: false });
+      return false;
+    })();
+    if (ambiguous)
+      return types4;
+  }
+  return;
+}
+var init_getAbiItem = __esm(() => {
+  init_abi();
+  init_isAddress();
+  init_toEventSelector();
+  init_toFunctionSelector();
+});
+function prepareEncodeFunctionData(parameters) {
+  const { abi, args, functionName } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({
+      abi,
+      args,
+      name: functionName
+    });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath });
+  return {
+    abi: [abiItem],
+    functionName: toFunctionSelector(formatAbiItem2(abiItem))
+  };
+}
+var docsPath = "/docs/contract/encodeFunctionData";
+var init_prepareEncodeFunctionData = __esm(() => {
+  init_abi();
+  init_toFunctionSelector();
+  init_formatAbiItem2();
+  init_getAbiItem();
+});
+function encodeFunctionData(parameters) {
+  const { args } = parameters;
+  const { abi, functionName } = (() => {
+    if (parameters.abi.length === 1 && parameters.functionName?.startsWith("0x"))
+      return parameters;
+    return prepareEncodeFunctionData(parameters);
+  })();
+  const abiItem = abi[0];
+  const signature = functionName;
+  const data = "inputs" in abiItem && abiItem.inputs ? encodeAbiParameters(abiItem.inputs, args ?? []) : undefined;
+  return concatHex([signature, data ?? "0x"]);
+}
+var init_encodeFunctionData = __esm(() => {
+  init_encodeAbiParameters();
+  init_prepareEncodeFunctionData();
+});
+var NegativeOffsetError;
+var PositionOutOfBoundsError;
+var RecursiveReadLimitExceededError;
+var init_cursor = __esm(() => {
+  init_base();
+  NegativeOffsetError = class NegativeOffsetError2 extends BaseError2 {
+    constructor({ offset }) {
+      super(`Offset \`${offset}\` cannot be negative.`, {
+        name: "NegativeOffsetError"
+      });
+    }
+  };
+  PositionOutOfBoundsError = class PositionOutOfBoundsError2 extends BaseError2 {
+    constructor({ length, position }) {
+      super(`Position \`${position}\` is out of bounds (\`0 < position < ${length}\`).`, { name: "PositionOutOfBoundsError" });
+    }
+  };
+  RecursiveReadLimitExceededError = class RecursiveReadLimitExceededError2 extends BaseError2 {
+    constructor({ count, limit }) {
+      super(`Recursive read limit of \`${limit}\` exceeded (recursive read count: \`${count}\`).`, { name: "RecursiveReadLimitExceededError" });
+    }
+  };
+});
+function createCursor(bytes, { recursiveReadLimit = 8192 } = {}) {
+  const cursor = Object.create(staticCursor);
+  cursor.bytes = bytes;
+  cursor.dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  cursor.positionReadCount = new Map;
+  cursor.recursiveReadLimit = recursiveReadLimit;
+  return cursor;
+}
+var staticCursor;
+var init_cursor2 = __esm(() => {
+  init_cursor();
+  staticCursor = {
+    bytes: new Uint8Array,
+    dataView: new DataView(new ArrayBuffer(0)),
+    position: 0,
+    positionReadCount: new Map,
+    recursiveReadCount: 0,
+    recursiveReadLimit: Number.POSITIVE_INFINITY,
+    assertReadLimit() {
+      if (this.recursiveReadCount >= this.recursiveReadLimit)
+        throw new RecursiveReadLimitExceededError({
+          count: this.recursiveReadCount + 1,
+          limit: this.recursiveReadLimit
+        });
+    },
+    assertPosition(position) {
+      if (position < 0 || position > this.bytes.length - 1)
+        throw new PositionOutOfBoundsError({
+          length: this.bytes.length,
+          position
+        });
+    },
+    decrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position - offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    getReadCount(position) {
+      return this.positionReadCount.get(position || this.position) || 0;
+    },
+    incrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position + offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    inspectByte(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectBytes(length, position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + length - 1);
+      return this.bytes.subarray(position, position + length);
+    },
+    inspectUint8(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectUint16(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 1);
+      return this.dataView.getUint16(position);
+    },
+    inspectUint24(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 2);
+      return (this.dataView.getUint16(position) << 8) + this.dataView.getUint8(position + 2);
+    },
+    inspectUint32(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 3);
+      return this.dataView.getUint32(position);
+    },
+    pushByte(byte) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = byte;
+      this.position++;
+    },
+    pushBytes(bytes) {
+      this.assertPosition(this.position + bytes.length - 1);
+      this.bytes.set(bytes, this.position);
+      this.position += bytes.length;
+    },
+    pushUint8(value2) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = value2;
+      this.position++;
+    },
+    pushUint16(value2) {
+      this.assertPosition(this.position + 1);
+      this.dataView.setUint16(this.position, value2);
+      this.position += 2;
+    },
+    pushUint24(value2) {
+      this.assertPosition(this.position + 2);
+      this.dataView.setUint16(this.position, value2 >> 8);
+      this.dataView.setUint8(this.position + 2, value2 & ~4294967040);
+      this.position += 3;
+    },
+    pushUint32(value2) {
+      this.assertPosition(this.position + 3);
+      this.dataView.setUint32(this.position, value2);
+      this.position += 4;
+    },
+    readByte() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectByte();
+      this.position++;
+      return value2;
+    },
+    readBytes(length, size2) {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectBytes(length);
+      this.position += size2 ?? length;
+      return value2;
+    },
+    readUint8() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint8();
+      this.position += 1;
+      return value2;
+    },
+    readUint16() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint16();
+      this.position += 2;
+      return value2;
+    },
+    readUint24() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint24();
+      this.position += 3;
+      return value2;
+    },
+    readUint32() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint32();
+      this.position += 4;
+      return value2;
+    },
+    get remaining() {
+      return this.bytes.length - this.position;
+    },
+    setPosition(position) {
+      const oldPosition = this.position;
+      this.assertPosition(position);
+      this.position = position;
+      return () => this.position = oldPosition;
+    },
+    _touch() {
+      if (this.recursiveReadLimit === Number.POSITIVE_INFINITY)
+        return;
+      const count = this.getReadCount();
+      this.positionReadCount.set(this.position, count + 1);
+      if (count > 0)
+        this.recursiveReadCount++;
+    }
+  };
+});
+function bytesToBigInt(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex(bytes, opts);
+  return hexToBigInt(hex, opts);
+}
+function bytesToBool(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes);
+  }
+  if (bytes.length > 1 || bytes[0] > 1)
+    throw new InvalidBytesBooleanError(bytes);
+  return Boolean(bytes[0]);
+}
+function bytesToNumber(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex(bytes, opts);
+  return hexToNumber(hex, opts);
+}
+function bytesToString(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes, { dir: "right" });
+  }
+  return new TextDecoder().decode(bytes);
+}
+var init_fromBytes = __esm(() => {
+  init_encoding();
+  init_fromHex();
+  init_toHex();
+});
+function decodeAbiParameters(params, data) {
+  const bytes = typeof data === "string" ? hexToBytes2(data) : data;
+  const cursor = createCursor(bytes);
+  if (size(bytes) === 0 && params.length > 0)
+    throw new AbiDecodingZeroDataError;
+  if (size(data) && size(data) < 32)
+    throw new AbiDecodingDataSizeTooSmallError({
+      data: typeof data === "string" ? data : bytesToHex(data),
+      params,
+      size: size(data)
+    });
+  let consumed = 0;
+  const values = [];
+  for (let i2 = 0;i2 < params.length; ++i2) {
+    const param = params[i2];
+    cursor.setPosition(consumed);
+    const [data2, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: 0
+    });
+    consumed += consumed_;
+    values.push(data2);
+  }
+  return values;
+}
+function decodeParameter(cursor, param, { staticPosition }) {
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents) {
+    const [length, type] = arrayComponents;
+    return decodeArray(cursor, { ...param, type }, { length, staticPosition });
+  }
+  if (param.type === "tuple")
+    return decodeTuple(cursor, param, { staticPosition });
+  if (param.type === "address")
+    return decodeAddress(cursor);
+  if (param.type === "bool")
+    return decodeBool(cursor);
+  if (param.type.startsWith("bytes"))
+    return decodeBytes(cursor, param, { staticPosition });
+  if (param.type.startsWith("uint") || param.type.startsWith("int"))
+    return decodeNumber(cursor, param);
+  if (param.type === "string")
+    return decodeString(cursor, { staticPosition });
+  throw new InvalidAbiDecodingTypeError(param.type, {
+    docsPath: "/docs/contract/decodeAbiParameters"
+  });
+}
+function decodeAddress(cursor) {
+  const value2 = cursor.readBytes(32);
+  return [checksumAddress(bytesToHex(sliceBytes(value2, -20))), 32];
+}
+function decodeArray(cursor, param, { length, staticPosition }) {
+  if (!length) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const startOfData = start + sizeOfLength;
+    cursor.setPosition(start);
+    const length2 = bytesToNumber(cursor.readBytes(sizeOfLength));
+    const dynamicChild = hasDynamicChild(param);
+    let consumed2 = 0;
+    const value3 = [];
+    for (let i2 = 0;i2 < length2; ++i2) {
+      cursor.setPosition(startOfData + (dynamicChild ? i2 * 32 : consumed2));
+      const [data, consumed_] = decodeParameter(cursor, param, {
+        staticPosition: startOfData
+      });
+      consumed2 += consumed_;
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const value3 = [];
+    for (let i2 = 0;i2 < length; ++i2) {
+      cursor.setPosition(start + i2 * 32);
+      const [data] = decodeParameter(cursor, param, {
+        staticPosition: start
+      });
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  let consumed = 0;
+  const value2 = [];
+  for (let i2 = 0;i2 < length; ++i2) {
+    const [data, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: staticPosition + consumed
+    });
+    consumed += consumed_;
+    value2.push(data);
+  }
+  return [value2, consumed];
+}
+function decodeBool(cursor) {
+  return [bytesToBool(cursor.readBytes(32), { size: 32 }), 32];
+}
+function decodeBytes(cursor, param, { staticPosition }) {
+  const [_, size2] = param.type.split("bytes");
+  if (!size2) {
+    const offset = bytesToNumber(cursor.readBytes(32));
+    cursor.setPosition(staticPosition + offset);
+    const length = bytesToNumber(cursor.readBytes(32));
+    if (length === 0) {
+      cursor.setPosition(staticPosition + 32);
+      return ["0x", 32];
+    }
+    const data = cursor.readBytes(length);
+    cursor.setPosition(staticPosition + 32);
+    return [bytesToHex(data), 32];
+  }
+  const value2 = bytesToHex(cursor.readBytes(Number.parseInt(size2), 32));
+  return [value2, 32];
+}
+function decodeNumber(cursor, param) {
+  const signed = param.type.startsWith("int");
+  const size2 = Number.parseInt(param.type.split("int")[1] || "256");
+  const value2 = cursor.readBytes(32);
+  return [
+    size2 > 48 ? bytesToBigInt(value2, { signed }) : bytesToNumber(value2, { signed }),
+    32
+  ];
+}
+function decodeTuple(cursor, param, { staticPosition }) {
+  const hasUnnamedChild = param.components.length === 0 || param.components.some(({ name }) => !name);
+  const value2 = hasUnnamedChild ? [] : {};
+  let consumed = 0;
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    for (let i2 = 0;i2 < param.components.length; ++i2) {
+      const component = param.components[i2];
+      cursor.setPosition(start + consumed);
+      const [data, consumed_] = decodeParameter(cursor, component, {
+        staticPosition: start
+      });
+      consumed += consumed_;
+      value2[hasUnnamedChild ? i2 : component?.name] = data;
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value2, 32];
+  }
+  for (let i2 = 0;i2 < param.components.length; ++i2) {
+    const component = param.components[i2];
+    const [data, consumed_] = decodeParameter(cursor, component, {
+      staticPosition
+    });
+    value2[hasUnnamedChild ? i2 : component?.name] = data;
+    consumed += consumed_;
+  }
+  return [value2, consumed];
+}
+function decodeString(cursor, { staticPosition }) {
+  const offset = bytesToNumber(cursor.readBytes(32));
+  const start = staticPosition + offset;
+  cursor.setPosition(start);
+  const length = bytesToNumber(cursor.readBytes(32));
+  if (length === 0) {
+    cursor.setPosition(staticPosition + 32);
+    return ["", 32];
+  }
+  const data = cursor.readBytes(length, 32);
+  const value2 = bytesToString(trim(data));
+  cursor.setPosition(staticPosition + 32);
+  return [value2, 32];
+}
+function hasDynamicChild(param) {
+  const { type } = param;
+  if (type === "string")
+    return true;
+  if (type === "bytes")
+    return true;
+  if (type.endsWith("[]"))
+    return true;
+  if (type === "tuple")
+    return param.components?.some(hasDynamicChild);
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents && hasDynamicChild({ ...param, type: arrayComponents[1] }))
+    return true;
+  return false;
+}
+var sizeOfLength = 32;
+var sizeOfOffset = 32;
+var init_decodeAbiParameters = __esm(() => {
+  init_abi();
+  init_getAddress();
+  init_cursor2();
+  init_size();
+  init_slice();
+  init_fromBytes();
+  init_toBytes();
+  init_toHex();
+  init_encodeAbiParameters();
+});
+function decodeFunctionResult(parameters) {
+  const { abi, args, functionName, data } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({ abi, args, name: functionName });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath: docsPath2 });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath: docsPath2 });
+  if (!abiItem.outputs)
+    throw new AbiFunctionOutputsNotFoundError(abiItem.name, { docsPath: docsPath2 });
+  const values = decodeAbiParameters(abiItem.outputs, data);
+  if (values && values.length > 1)
+    return values;
+  if (values && values.length === 1)
+    return values[0];
+  return;
+}
+var docsPath2 = "/docs/contract/decodeFunctionResult";
+var init_decodeFunctionResult = __esm(() => {
+  init_abi();
+  init_decodeAbiParameters();
+  init_getAbiItem();
 });
 function isMessage(arg, schema) {
   const isMessage2 = arg !== null && typeof arg == "object" && "$typeName" in arg && typeof arg.$typeName == "string";
@@ -5527,9 +6574,6 @@ var hexToBytes = (hexStr) => {
   }
   return bytes;
 };
-var bytesToHex = (bytes) => {
-  return `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-};
 var hexToBase64 = (hex) => {
   const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
   if (cleanHex.length === 0) {
@@ -6005,8 +7049,8 @@ var INSPECT_MAX_BYTES = 50;
 var kMaxLength = 2147483647;
 var btoa = globalThis.btoa;
 var atob2 = globalThis.atob;
-var File2 = globalThis.File;
-var Blob2 = globalThis.Blob;
+var File = globalThis.File;
+var Blob = globalThis.Blob;
 function createBuffer(length) {
   if (length > kMaxLength)
     throw RangeError('The value "' + length + '" is invalid for option "size"');
@@ -7235,6 +8279,11 @@ var LATEST_BLOCK_NUMBER = {
   absVal: Buffer.from([2]).toString("base64"),
   sign: "-1"
 };
+var encodeCallMsg = (payload) => ({
+  from: hexToBase64(payload.from),
+  to: hexToBase64(payload.to),
+  data: hexToBase64(payload.data)
+});
 function sendReport(runtime, report, fn) {
   const rawReport = report.x_generatedCodeOnly_unwrap();
   const request = fn(rawReport);
@@ -15764,7 +16813,10 @@ var sendErrorResponse = (error) => {
   hostBindings.sendResponse(payload);
 };
 init_exports();
-init_encodeAbiParameters();
+var zeroAddress = "0x0000000000000000000000000000000000000000";
+init_decodeFunctionResult();
+init_encodeFunctionData();
+init_toHex();
 function setup(runtime2) {
   const config = runtime2.config;
   const evmConfig = config.evms[0];
@@ -15783,4105 +16835,72 @@ function setup(runtime2) {
     network: network248
   };
 }
-function reportDataSetup(typing, data) {
-  if (!typing)
-    throw new Error("please specify the data type");
-  const reportData = encodeAbiParameters(parseAbiParameters(typing), data);
-  return reportData;
-}
-function reportSign(runtime2, typing, data) {
-  const reportData = reportDataSetup(typing, data);
-  const signedReport = runtime2.report({
-    encodedPayload: hexToBase64(reportData),
-    encoderName: "evm",
-    signingAlgo: "ecdsa",
-    hashingAlgo: "keccak256"
+function readOnchain(runtime2, evmClient, contractAbi, funcName, contractAddr, args) {
+  const encodedFuncData = encodeFunctionData({
+    abi: contractAbi,
+    functionName: funcName,
+    args: args ? args : []
+  });
+  const msgCall = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: zeroAddress,
+      to: contractAddr,
+      data: encodedFuncData
+    }),
+    blockNumber: LATEST_BLOCK_NUMBER
   }).result();
-  return signedReport;
-}
-function reportWrite(runtime2, signedReport, evmConfig, evmClient, receiver) {
-  const marketWriteResult = evmClient.writeReport(runtime2, {
-    receiver,
-    report: signedReport,
-    gasConfig: {
-      gasLimit: evmConfig.gasLimit
-    }
-  }).result();
-  runtime2.log("writing a report");
-  return marketWriteResult;
-}
-function __classPrivateFieldSet(receiver, state, value2, kind, f) {
-  if (kind === "m")
-    throw new TypeError("Private method is not writable");
-  if (kind === "a" && !f)
-    throw new TypeError("Private accessor was defined without a setter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver))
-    throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind === "a" ? f.call(receiver, value2) : f ? f.value = value2 : state.set(receiver, value2), value2;
-}
-function __classPrivateFieldGet(receiver, state, kind, f) {
-  if (kind === "a" && !f)
-    throw new TypeError("Private accessor was defined without a getter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver))
-    throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-}
-var uuid4 = function() {
-  const { crypto } = globalThis;
-  if (crypto?.randomUUID) {
-    uuid4 = crypto.randomUUID.bind(crypto);
-    return crypto.randomUUID();
-  }
-  const u8 = new Uint8Array(1);
-  const randomByte = crypto ? () => crypto.getRandomValues(u8)[0] : () => Math.random() * 255 & 255;
-  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ randomByte() & 15 >> +c / 4).toString(16));
-};
-function isAbortError(err) {
-  return typeof err === "object" && err !== null && (("name" in err) && err.name === "AbortError" || ("message" in err) && String(err.message).includes("FetchRequestCanceledException"));
-}
-var castToError = (err) => {
-  if (err instanceof Error)
-    return err;
-  if (typeof err === "object" && err !== null) {
-    try {
-      if (Object.prototype.toString.call(err) === "[object Error]") {
-        const error = new Error(err.message, err.cause ? { cause: err.cause } : {});
-        if (err.stack)
-          error.stack = err.stack;
-        if (err.cause && !error.cause)
-          error.cause = err.cause;
-        if (err.name)
-          error.name = err.name;
-        return error;
-      }
-    } catch {}
-    try {
-      return new Error(JSON.stringify(err));
-    } catch {}
-  }
-  return new Error(err);
-};
-
-class AnthropicError extends Error {
-}
-
-class APIError extends AnthropicError {
-  constructor(status, error, message, headers) {
-    super(`${APIError.makeMessage(status, error, message)}`);
-    this.status = status;
-    this.headers = headers;
-    this.requestID = headers?.get("request-id");
-    this.error = error;
-  }
-  static makeMessage(status, error, message) {
-    const msg = error?.message ? typeof error.message === "string" ? error.message : JSON.stringify(error.message) : error ? JSON.stringify(error) : message;
-    if (status && msg) {
-      return `${status} ${msg}`;
-    }
-    if (status) {
-      return `${status} status code (no body)`;
-    }
-    if (msg) {
-      return msg;
-    }
-    return "(no status code or body)";
-  }
-  static generate(status, errorResponse, message, headers) {
-    if (!status || !headers) {
-      return new APIConnectionError({ message, cause: castToError(errorResponse) });
-    }
-    const error = errorResponse;
-    if (status === 400) {
-      return new BadRequestError(status, error, message, headers);
-    }
-    if (status === 401) {
-      return new AuthenticationError(status, error, message, headers);
-    }
-    if (status === 403) {
-      return new PermissionDeniedError(status, error, message, headers);
-    }
-    if (status === 404) {
-      return new NotFoundError(status, error, message, headers);
-    }
-    if (status === 409) {
-      return new ConflictError(status, error, message, headers);
-    }
-    if (status === 422) {
-      return new UnprocessableEntityError(status, error, message, headers);
-    }
-    if (status === 429) {
-      return new RateLimitError(status, error, message, headers);
-    }
-    if (status >= 500) {
-      return new InternalServerError(status, error, message, headers);
-    }
-    return new APIError(status, error, message, headers);
-  }
-}
-
-class APIUserAbortError extends APIError {
-  constructor({ message } = {}) {
-    super(undefined, undefined, message || "Request was aborted.", undefined);
-  }
-}
-
-class APIConnectionError extends APIError {
-  constructor({ message, cause }) {
-    super(undefined, undefined, message || "Connection error.", undefined);
-    if (cause)
-      this.cause = cause;
-  }
-}
-
-class APIConnectionTimeoutError extends APIConnectionError {
-  constructor({ message } = {}) {
-    super({ message: message ?? "Request timed out." });
-  }
-}
-
-class BadRequestError extends APIError {
-}
-
-class AuthenticationError extends APIError {
-}
-
-class PermissionDeniedError extends APIError {
-}
-
-class NotFoundError extends APIError {
-}
-
-class ConflictError extends APIError {
-}
-
-class UnprocessableEntityError extends APIError {
-}
-
-class RateLimitError extends APIError {
-}
-
-class InternalServerError extends APIError {
-}
-var startsWithSchemeRegexp = /^[a-z][a-z0-9+.-]*:/i;
-var isAbsoluteURL = (url) => {
-  return startsWithSchemeRegexp.test(url);
-};
-var isArray = (val) => (isArray = Array.isArray, isArray(val));
-var isReadonlyArray = isArray;
-function maybeObj(x) {
-  if (typeof x !== "object") {
-    return {};
-  }
-  return x ?? {};
-}
-function isEmptyObj(obj) {
-  if (!obj)
-    return true;
-  for (const _k in obj)
-    return false;
-  return true;
-}
-function hasOwn(obj, key) {
-  return Object.prototype.hasOwnProperty.call(obj, key);
-}
-var validatePositiveInteger = (name, n) => {
-  if (typeof n !== "number" || !Number.isInteger(n)) {
-    throw new AnthropicError(`${name} must be an integer`);
-  }
-  if (n < 0) {
-    throw new AnthropicError(`${name} must be a positive integer`);
-  }
-  return n;
-};
-var safeJSON = (text) => {
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    return;
-  }
-};
-var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-var VERSION = "0.78.0";
-var isRunningInBrowser = () => {
-  return typeof window !== "undefined" && typeof window.document !== "undefined" && typeof navigator !== "undefined";
-};
-function getDetectedPlatform() {
-  if (typeof Deno !== "undefined" && Deno.build != null) {
-    return "deno";
-  }
-  if (typeof EdgeRuntime !== "undefined") {
-    return "edge";
-  }
-  if (Object.prototype.toString.call(typeof globalThis.process !== "undefined" ? globalThis.process : 0) === "[object process]") {
-    return "node";
-  }
-  return "unknown";
-}
-var getPlatformProperties = () => {
-  const detectedPlatform = getDetectedPlatform();
-  if (detectedPlatform === "deno") {
-    return {
-      "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION,
-      "X-Stainless-OS": normalizePlatform(Deno.build.os),
-      "X-Stainless-Arch": normalizeArch(Deno.build.arch),
-      "X-Stainless-Runtime": "deno",
-      "X-Stainless-Runtime-Version": typeof Deno.version === "string" ? Deno.version : Deno.version?.deno ?? "unknown"
-    };
-  }
-  if (typeof EdgeRuntime !== "undefined") {
-    return {
-      "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION,
-      "X-Stainless-OS": "Unknown",
-      "X-Stainless-Arch": `other:${EdgeRuntime}`,
-      "X-Stainless-Runtime": "edge",
-      "X-Stainless-Runtime-Version": globalThis.process.version
-    };
-  }
-  if (detectedPlatform === "node") {
-    return {
-      "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION,
-      "X-Stainless-OS": normalizePlatform(globalThis.process.platform ?? "unknown"),
-      "X-Stainless-Arch": normalizeArch(globalThis.process.arch ?? "unknown"),
-      "X-Stainless-Runtime": "node",
-      "X-Stainless-Runtime-Version": globalThis.process.version ?? "unknown"
-    };
-  }
-  const browserInfo = getBrowserInfo();
-  if (browserInfo) {
-    return {
-      "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION,
-      "X-Stainless-OS": "Unknown",
-      "X-Stainless-Arch": "unknown",
-      "X-Stainless-Runtime": `browser:${browserInfo.browser}`,
-      "X-Stainless-Runtime-Version": browserInfo.version
-    };
-  }
-  return {
-    "X-Stainless-Lang": "js",
-    "X-Stainless-Package-Version": VERSION,
-    "X-Stainless-OS": "Unknown",
-    "X-Stainless-Arch": "unknown",
-    "X-Stainless-Runtime": "unknown",
-    "X-Stainless-Runtime-Version": "unknown"
-  };
-};
-function getBrowserInfo() {
-  if (typeof navigator === "undefined" || !navigator) {
-    return null;
-  }
-  const browserPatterns = [
-    { key: "edge", pattern: /Edge(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
-    { key: "ie", pattern: /MSIE(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
-    { key: "ie", pattern: /Trident(?:.*rv\:(\d+)\.(\d+)(?:\.(\d+))?)?/ },
-    { key: "chrome", pattern: /Chrome(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
-    { key: "firefox", pattern: /Firefox(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
-    { key: "safari", pattern: /(?:Version\W+(\d+)\.(\d+)(?:\.(\d+))?)?(?:\W+Mobile\S*)?\W+Safari/ }
-  ];
-  for (const { key, pattern } of browserPatterns) {
-    const match = pattern.exec(navigator.userAgent);
-    if (match) {
-      const major = match[1] || 0;
-      const minor = match[2] || 0;
-      const patch = match[3] || 0;
-      return { browser: key, version: `${major}.${minor}.${patch}` };
-    }
-  }
-  return null;
-}
-var normalizeArch = (arch) => {
-  if (arch === "x32")
-    return "x32";
-  if (arch === "x86_64" || arch === "x64")
-    return "x64";
-  if (arch === "arm")
-    return "arm";
-  if (arch === "aarch64" || arch === "arm64")
-    return "arm64";
-  if (arch)
-    return `other:${arch}`;
-  return "unknown";
-};
-var normalizePlatform = (platform) => {
-  platform = platform.toLowerCase();
-  if (platform.includes("ios"))
-    return "iOS";
-  if (platform === "android")
-    return "Android";
-  if (platform === "darwin")
-    return "MacOS";
-  if (platform === "win32")
-    return "Windows";
-  if (platform === "freebsd")
-    return "FreeBSD";
-  if (platform === "openbsd")
-    return "OpenBSD";
-  if (platform === "linux")
-    return "Linux";
-  if (platform)
-    return `Other:${platform}`;
-  return "Unknown";
-};
-var _platformHeaders;
-var getPlatformHeaders = () => {
-  return _platformHeaders ?? (_platformHeaders = getPlatformProperties());
-};
-function getDefaultFetch() {
-  if (typeof fetch !== "undefined") {
-    return fetch;
-  }
-  throw new Error("`fetch` is not defined as a global; Either pass `fetch` to the client, `new Anthropic({ fetch })` or polyfill the global, `globalThis.fetch = fetch`");
-}
-function makeReadableStream(...args) {
-  const ReadableStream = globalThis.ReadableStream;
-  if (typeof ReadableStream === "undefined") {
-    throw new Error("`ReadableStream` is not defined as a global; You will need to polyfill it, `globalThis.ReadableStream = ReadableStream`");
-  }
-  return new ReadableStream(...args);
-}
-function ReadableStreamFrom(iterable) {
-  let iter = Symbol.asyncIterator in iterable ? iterable[Symbol.asyncIterator]() : iterable[Symbol.iterator]();
-  return makeReadableStream({
-    start() {},
-    async pull(controller) {
-      const { done, value: value2 } = await iter.next();
-      if (done) {
-        controller.close();
-      } else {
-        controller.enqueue(value2);
-      }
-    },
-    async cancel() {
-      await iter.return?.();
-    }
+  const callResult = decodeFunctionResult({
+    abi: contractAbi,
+    functionName: funcName,
+    data: bytesToHex(msgCall.data)
   });
+  runtime2.log(`call result ${callResult}`);
+  return callResult;
 }
-function ReadableStreamToAsyncIterable(stream) {
-  if (stream[Symbol.asyncIterator])
-    return stream;
-  const reader = stream.getReader();
-  return {
-    async next() {
-      try {
-        const result = await reader.read();
-        if (result?.done)
-          reader.releaseLock();
-        return result;
-      } catch (e) {
-        reader.releaseLock();
-        throw e;
-      }
-    },
-    async return() {
-      const cancelPromise = reader.cancel();
-      reader.releaseLock();
-      await cancelPromise;
-      return { done: true, value: undefined };
-    },
-    [Symbol.asyncIterator]() {
-      return this;
-    }
-  };
-}
-async function CancelReadableStream(stream) {
-  if (stream === null || typeof stream !== "object")
-    return;
-  if (stream[Symbol.asyncIterator]) {
-    await stream[Symbol.asyncIterator]().return?.();
-    return;
-  }
-  const reader = stream.getReader();
-  const cancelPromise = reader.cancel();
-  reader.releaseLock();
-  await cancelPromise;
-}
-var FallbackEncoder = ({ headers, body }) => {
-  return {
-    bodyHeaders: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify(body)
-  };
-};
-function concatBytes2(buffers) {
-  let length = 0;
-  for (const buffer of buffers) {
-    length += buffer.length;
-  }
-  const output = new Uint8Array(length);
-  let index = 0;
-  for (const buffer of buffers) {
-    output.set(buffer, index);
-    index += buffer.length;
-  }
-  return output;
-}
-var encodeUTF8_;
-function encodeUTF8(str) {
-  let encoder3;
-  return (encodeUTF8_ ?? (encoder3 = new globalThis.TextEncoder, encodeUTF8_ = encoder3.encode.bind(encoder3)))(str);
-}
-var decodeUTF8_;
-function decodeUTF8(bytes) {
-  let decoder;
-  return (decodeUTF8_ ?? (decoder = new globalThis.TextDecoder, decodeUTF8_ = decoder.decode.bind(decoder)))(bytes);
-}
-var _LineDecoder_buffer;
-var _LineDecoder_carriageReturnIndex;
-
-class LineDecoder {
-  constructor() {
-    _LineDecoder_buffer.set(this, undefined);
-    _LineDecoder_carriageReturnIndex.set(this, undefined);
-    __classPrivateFieldSet(this, _LineDecoder_buffer, new Uint8Array, "f");
-    __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
-  }
-  decode(chunk) {
-    if (chunk == null) {
-      return [];
-    }
-    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? encodeUTF8(chunk) : chunk;
-    __classPrivateFieldSet(this, _LineDecoder_buffer, concatBytes2([__classPrivateFieldGet(this, _LineDecoder_buffer, "f"), binaryChunk]), "f");
-    const lines = [];
-    let patternIndex;
-    while ((patternIndex = findNewlineIndex(__classPrivateFieldGet(this, _LineDecoder_buffer, "f"), __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f"))) != null) {
-      if (patternIndex.carriage && __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") == null) {
-        __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, patternIndex.index, "f");
-        continue;
-      }
-      if (__classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") != null && (patternIndex.index !== __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") + 1 || patternIndex.carriage)) {
-        lines.push(decodeUTF8(__classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(0, __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") - 1)));
-        __classPrivateFieldSet(this, _LineDecoder_buffer, __classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(__classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f")), "f");
-        __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
-        continue;
-      }
-      const endIndex = __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") !== null ? patternIndex.preceding - 1 : patternIndex.preceding;
-      const line = decodeUTF8(__classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(0, endIndex));
-      lines.push(line);
-      __classPrivateFieldSet(this, _LineDecoder_buffer, __classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(patternIndex.index), "f");
-      __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
-    }
-    return lines;
-  }
-  flush() {
-    if (!__classPrivateFieldGet(this, _LineDecoder_buffer, "f").length) {
-      return [];
-    }
-    return this.decode(`
-`);
-  }
-}
-_LineDecoder_buffer = new WeakMap, _LineDecoder_carriageReturnIndex = new WeakMap;
-LineDecoder.NEWLINE_CHARS = new Set([`
-`, "\r"]);
-LineDecoder.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
-function findNewlineIndex(buffer, startIndex) {
-  const newline = 10;
-  const carriage = 13;
-  for (let i2 = startIndex ?? 0;i2 < buffer.length; i2++) {
-    if (buffer[i2] === newline) {
-      return { preceding: i2, index: i2 + 1, carriage: false };
-    }
-    if (buffer[i2] === carriage) {
-      return { preceding: i2, index: i2 + 1, carriage: true };
-    }
-  }
-  return null;
-}
-function findDoubleNewlineIndex(buffer) {
-  const newline = 10;
-  const carriage = 13;
-  for (let i2 = 0;i2 < buffer.length - 1; i2++) {
-    if (buffer[i2] === newline && buffer[i2 + 1] === newline) {
-      return i2 + 2;
-    }
-    if (buffer[i2] === carriage && buffer[i2 + 1] === carriage) {
-      return i2 + 2;
-    }
-    if (buffer[i2] === carriage && buffer[i2 + 1] === newline && i2 + 3 < buffer.length && buffer[i2 + 2] === carriage && buffer[i2 + 3] === newline) {
-      return i2 + 4;
-    }
-  }
-  return -1;
-}
-var levelNumbers = {
-  off: 0,
-  error: 200,
-  warn: 300,
-  info: 400,
-  debug: 500
-};
-var parseLogLevel = (maybeLevel, sourceName, client) => {
-  if (!maybeLevel) {
-    return;
-  }
-  if (hasOwn(levelNumbers, maybeLevel)) {
-    return maybeLevel;
-  }
-  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
-  return;
-};
-function noop() {}
-function makeLogFn(fnLevel, logger, logLevel) {
-  if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
-    return noop;
-  } else {
-    return logger[fnLevel].bind(logger);
-  }
-}
-var noopLogger = {
-  error: noop,
-  warn: noop,
-  info: noop,
-  debug: noop
-};
-var cachedLoggers = /* @__PURE__ */ new WeakMap;
-function loggerFor(client) {
-  const logger = client.logger;
-  const logLevel = client.logLevel ?? "off";
-  if (!logger) {
-    return noopLogger;
-  }
-  const cachedLogger = cachedLoggers.get(logger);
-  if (cachedLogger && cachedLogger[0] === logLevel) {
-    return cachedLogger[1];
-  }
-  const levelLogger = {
-    error: makeLogFn("error", logger, logLevel),
-    warn: makeLogFn("warn", logger, logLevel),
-    info: makeLogFn("info", logger, logLevel),
-    debug: makeLogFn("debug", logger, logLevel)
-  };
-  cachedLoggers.set(logger, [logLevel, levelLogger]);
-  return levelLogger;
-}
-var formatRequestDetails = (details) => {
-  if (details.options) {
-    details.options = { ...details.options };
-    delete details.options["headers"];
-  }
-  if (details.headers) {
-    details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value2]) => [
-      name,
-      name.toLowerCase() === "x-api-key" || name.toLowerCase() === "authorization" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value2
-    ]));
-  }
-  if ("retryOfRequestLogID" in details) {
-    if (details.retryOfRequestLogID) {
-      details.retryOf = details.retryOfRequestLogID;
-    }
-    delete details.retryOfRequestLogID;
-  }
-  return details;
-};
-var _Stream_client;
-
-class Stream {
-  constructor(iterator, controller, client) {
-    this.iterator = iterator;
-    _Stream_client.set(this, undefined);
-    this.controller = controller;
-    __classPrivateFieldSet(this, _Stream_client, client, "f");
-  }
-  static fromSSEResponse(response, controller, client) {
-    let consumed = false;
-    const logger = client ? loggerFor(client) : console;
-    async function* iterator() {
-      if (consumed) {
-        throw new AnthropicError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
-      }
-      consumed = true;
-      let done = false;
-      try {
-        for await (const sse of _iterSSEMessages(response, controller)) {
-          if (sse.event === "completion") {
-            try {
-              yield JSON.parse(sse.data);
-            } catch (e) {
-              logger.error(`Could not parse message into JSON:`, sse.data);
-              logger.error(`From chunk:`, sse.raw);
-              throw e;
-            }
-          }
-          if (sse.event === "message_start" || sse.event === "message_delta" || sse.event === "message_stop" || sse.event === "content_block_start" || sse.event === "content_block_delta" || sse.event === "content_block_stop") {
-            try {
-              yield JSON.parse(sse.data);
-            } catch (e) {
-              logger.error(`Could not parse message into JSON:`, sse.data);
-              logger.error(`From chunk:`, sse.raw);
-              throw e;
-            }
-          }
-          if (sse.event === "ping") {
-            continue;
-          }
-          if (sse.event === "error") {
-            throw new APIError(undefined, safeJSON(sse.data) ?? sse.data, undefined, response.headers);
-          }
-        }
-        done = true;
-      } catch (e) {
-        if (isAbortError(e))
-          return;
-        throw e;
-      } finally {
-        if (!done)
-          controller.abort();
-      }
-    }
-    return new Stream(iterator, controller, client);
-  }
-  static fromReadableStream(readableStream, controller, client) {
-    let consumed = false;
-    async function* iterLines() {
-      const lineDecoder = new LineDecoder;
-      const iter = ReadableStreamToAsyncIterable(readableStream);
-      for await (const chunk of iter) {
-        for (const line of lineDecoder.decode(chunk)) {
-          yield line;
-        }
-      }
-      for (const line of lineDecoder.flush()) {
-        yield line;
-      }
-    }
-    async function* iterator() {
-      if (consumed) {
-        throw new AnthropicError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
-      }
-      consumed = true;
-      let done = false;
-      try {
-        for await (const line of iterLines()) {
-          if (done)
-            continue;
-          if (line)
-            yield JSON.parse(line);
-        }
-        done = true;
-      } catch (e) {
-        if (isAbortError(e))
-          return;
-        throw e;
-      } finally {
-        if (!done)
-          controller.abort();
-      }
-    }
-    return new Stream(iterator, controller, client);
-  }
-  [(_Stream_client = new WeakMap, Symbol.asyncIterator)]() {
-    return this.iterator();
-  }
-  tee() {
-    const left = [];
-    const right = [];
-    const iterator = this.iterator();
-    const teeIterator = (queue) => {
-      return {
-        next: () => {
-          if (queue.length === 0) {
-            const result = iterator.next();
-            left.push(result);
-            right.push(result);
-          }
-          return queue.shift();
-        }
-      };
-    };
-    return [
-      new Stream(() => teeIterator(left), this.controller, __classPrivateFieldGet(this, _Stream_client, "f")),
-      new Stream(() => teeIterator(right), this.controller, __classPrivateFieldGet(this, _Stream_client, "f"))
-    ];
-  }
-  toReadableStream() {
-    const self = this;
-    let iter;
-    return makeReadableStream({
-      async start() {
-        iter = self[Symbol.asyncIterator]();
-      },
-      async pull(ctrl) {
-        try {
-          const { value: value2, done } = await iter.next();
-          if (done)
-            return ctrl.close();
-          const bytes = encodeUTF8(JSON.stringify(value2) + `
-`);
-          ctrl.enqueue(bytes);
-        } catch (err) {
-          ctrl.error(err);
-        }
-      },
-      async cancel() {
-        await iter.return?.();
-      }
-    });
-  }
-}
-async function* _iterSSEMessages(response, controller) {
-  if (!response.body) {
-    controller.abort();
-    if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
-      throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
-    }
-    throw new AnthropicError(`Attempted to iterate over a response with no body`);
-  }
-  const sseDecoder = new SSEDecoder;
-  const lineDecoder = new LineDecoder;
-  const iter = ReadableStreamToAsyncIterable(response.body);
-  for await (const sseChunk of iterSSEChunks(iter)) {
-    for (const line of lineDecoder.decode(sseChunk)) {
-      const sse = sseDecoder.decode(line);
-      if (sse)
-        yield sse;
-    }
-  }
-  for (const line of lineDecoder.flush()) {
-    const sse = sseDecoder.decode(line);
-    if (sse)
-      yield sse;
-  }
-}
-async function* iterSSEChunks(iterator) {
-  let data = new Uint8Array;
-  for await (const chunk of iterator) {
-    if (chunk == null) {
-      continue;
-    }
-    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? encodeUTF8(chunk) : chunk;
-    let newData = new Uint8Array(data.length + binaryChunk.length);
-    newData.set(data);
-    newData.set(binaryChunk, data.length);
-    data = newData;
-    let patternIndex;
-    while ((patternIndex = findDoubleNewlineIndex(data)) !== -1) {
-      yield data.slice(0, patternIndex);
-      data = data.slice(patternIndex);
-    }
-  }
-  if (data.length > 0) {
-    yield data;
-  }
-}
-
-class SSEDecoder {
-  constructor() {
-    this.event = null;
-    this.data = [];
-    this.chunks = [];
-  }
-  decode(line) {
-    if (line.endsWith("\r")) {
-      line = line.substring(0, line.length - 1);
-    }
-    if (!line) {
-      if (!this.event && !this.data.length)
-        return null;
-      const sse = {
-        event: this.event,
-        data: this.data.join(`
-`),
-        raw: this.chunks
-      };
-      this.event = null;
-      this.data = [];
-      this.chunks = [];
-      return sse;
-    }
-    this.chunks.push(line);
-    if (line.startsWith(":")) {
-      return null;
-    }
-    let [fieldname, _, value2] = partition(line, ":");
-    if (value2.startsWith(" ")) {
-      value2 = value2.substring(1);
-    }
-    if (fieldname === "event") {
-      this.event = value2;
-    } else if (fieldname === "data") {
-      this.data.push(value2);
-    }
-    return null;
-  }
-}
-function partition(str, delimiter) {
-  const index = str.indexOf(delimiter);
-  if (index !== -1) {
-    return [str.substring(0, index), delimiter, str.substring(index + delimiter.length)];
-  }
-  return [str, "", ""];
-}
-async function defaultParseResponse(client, props) {
-  const { response, requestLogID, retryOfRequestLogID, startTime } = props;
-  const body = await (async () => {
-    if (props.options.stream) {
-      loggerFor(client).debug("response", response.status, response.url, response.headers, response.body);
-      if (props.options.__streamClass) {
-        return props.options.__streamClass.fromSSEResponse(response, props.controller);
-      }
-      return Stream.fromSSEResponse(response, props.controller);
-    }
-    if (response.status === 204) {
-      return null;
-    }
-    if (props.options.__binaryResponse) {
-      return response;
-    }
-    const contentType = response.headers.get("content-type");
-    const mediaType = contentType?.split(";")[0]?.trim();
-    const isJSON = mediaType?.includes("application/json") || mediaType?.endsWith("+json");
-    if (isJSON) {
-      const contentLength = response.headers.get("content-length");
-      if (contentLength === "0") {
-        return;
-      }
-      const json = await response.json();
-      return addRequestID(json, response);
-    }
-    const text = await response.text();
-    return text;
-  })();
-  loggerFor(client).debug(`[${requestLogID}] response parsed`, formatRequestDetails({
-    retryOfRequestLogID,
-    url: response.url,
-    status: response.status,
-    body,
-    durationMs: Date.now() - startTime
-  }));
-  return body;
-}
-function addRequestID(value2, response) {
-  if (!value2 || typeof value2 !== "object" || Array.isArray(value2)) {
-    return value2;
-  }
-  return Object.defineProperty(value2, "_request_id", {
-    value: response.headers.get("request-id"),
-    enumerable: false
+var aggregatorAbi = [
+  "function decimals() external view returns (uint8)",
+  "function description() external view returns (string)",
+  "function getRoundData(uint80 _roundId) external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
+  "function latestRoundData() external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
+  "function version() external view returns (uint256)"
+];
+var aggregatorV3_default = parseAbi(aggregatorAbi);
+var supportedTokensPriceFeeds = [
+  { id: 1, name: "USDC", address: "0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E", amount: 0 },
+  { id: 2, name: "SNX", address: "0xc0F82A46033b8BdBA4Bb0B0e28Bc2006F64355bC", amount: 10 },
+  { id: 3, name: "LINK", address: "0xc59E3633BAAC79493d908e63626716e204A45EdF", amount: 10 },
+  { id: 4, name: "DAI", address: "0x14866185B1962B63C3Ea9E03Bc1da838bab34C19", amount: 10 },
+  { id: 5, name: "ETH", address: "0x694AA1769357215DE4FAC081bf1f309aDC325306", amount: 10 },
+  { id: 6, name: "BTC", address: "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43", amount: 10 }
+];
+function fetchTokensPrices(runtime2, evmClient, tokens) {
+  let tokenPricesInUsd = [];
+  let supportedTokensAddresses = [];
+  supportedTokensPriceFeeds.forEach((token) => {
+    supportedTokensAddresses.push(token.address);
   });
-}
-var _APIPromise_client;
-
-class APIPromise extends Promise {
-  constructor(client, responsePromise, parseResponse = defaultParseResponse) {
-    super((resolve) => {
-      resolve(null);
-    });
-    this.responsePromise = responsePromise;
-    this.parseResponse = parseResponse;
-    _APIPromise_client.set(this, undefined);
-    __classPrivateFieldSet(this, _APIPromise_client, client, "f");
-  }
-  _thenUnwrap(transform) {
-    return new APIPromise(__classPrivateFieldGet(this, _APIPromise_client, "f"), this.responsePromise, async (client, props) => addRequestID(transform(await this.parseResponse(client, props), props), props.response));
-  }
-  asResponse() {
-    return this.responsePromise.then((p) => p.response);
-  }
-  async withResponse() {
-    const [data, response] = await Promise.all([this.parse(), this.asResponse()]);
-    return { data, response, request_id: response.headers.get("request-id") };
-  }
-  parse() {
-    if (!this.parsedPromise) {
-      this.parsedPromise = this.responsePromise.then((data) => this.parseResponse(__classPrivateFieldGet(this, _APIPromise_client, "f"), data));
-    }
-    return this.parsedPromise;
-  }
-  then(onfulfilled, onrejected) {
-    return this.parse().then(onfulfilled, onrejected);
-  }
-  catch(onrejected) {
-    return this.parse().catch(onrejected);
-  }
-  finally(onfinally) {
-    return this.parse().finally(onfinally);
-  }
-}
-_APIPromise_client = new WeakMap;
-var _AbstractPage_client;
-
-class AbstractPage {
-  constructor(client, response, body, options) {
-    _AbstractPage_client.set(this, undefined);
-    __classPrivateFieldSet(this, _AbstractPage_client, client, "f");
-    this.options = options;
-    this.response = response;
-    this.body = body;
-  }
-  hasNextPage() {
-    const items = this.getPaginatedItems();
-    if (!items.length)
-      return false;
-    return this.nextPageRequestOptions() != null;
-  }
-  async getNextPage() {
-    const nextOptions = this.nextPageRequestOptions();
-    if (!nextOptions) {
-      throw new AnthropicError("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
-    }
-    return await __classPrivateFieldGet(this, _AbstractPage_client, "f").requestAPIList(this.constructor, nextOptions);
-  }
-  async* iterPages() {
-    let page = this;
-    yield page;
-    while (page.hasNextPage()) {
-      page = await page.getNextPage();
-      yield page;
-    }
-  }
-  async* [(_AbstractPage_client = new WeakMap, Symbol.asyncIterator)]() {
-    for await (const page of this.iterPages()) {
-      for (const item of page.getPaginatedItems()) {
-        yield item;
-      }
-    }
-  }
-}
-
-class PagePromise extends APIPromise {
-  constructor(client, request, Page) {
-    super(client, request, async (client2, props) => new Page(client2, props.response, await defaultParseResponse(client2, props), props.options));
-  }
-  async* [Symbol.asyncIterator]() {
-    const page = await this;
-    for await (const item of page) {
-      yield item;
-    }
-  }
-}
-
-class Page extends AbstractPage {
-  constructor(client, response, body, options) {
-    super(client, response, body, options);
-    this.data = body.data || [];
-    this.has_more = body.has_more || false;
-    this.first_id = body.first_id || null;
-    this.last_id = body.last_id || null;
-  }
-  getPaginatedItems() {
-    return this.data ?? [];
-  }
-  hasNextPage() {
-    if (this.has_more === false) {
-      return false;
-    }
-    return super.hasNextPage();
-  }
-  nextPageRequestOptions() {
-    if (this.options.query?.["before_id"]) {
-      const first_id = this.first_id;
-      if (!first_id) {
-        return null;
-      }
-      return {
-        ...this.options,
-        query: {
-          ...maybeObj(this.options.query),
-          before_id: first_id
-        }
-      };
-    }
-    const cursor = this.last_id;
-    if (!cursor) {
-      return null;
-    }
-    return {
-      ...this.options,
-      query: {
-        ...maybeObj(this.options.query),
-        after_id: cursor
-      }
-    };
-  }
-}
-
-class PageCursor extends AbstractPage {
-  constructor(client, response, body, options) {
-    super(client, response, body, options);
-    this.data = body.data || [];
-    this.has_more = body.has_more || false;
-    this.next_page = body.next_page || null;
-  }
-  getPaginatedItems() {
-    return this.data ?? [];
-  }
-  hasNextPage() {
-    if (this.has_more === false) {
-      return false;
-    }
-    return super.hasNextPage();
-  }
-  nextPageRequestOptions() {
-    const cursor = this.next_page;
-    if (!cursor) {
-      return null;
-    }
-    return {
-      ...this.options,
-      query: {
-        ...maybeObj(this.options.query),
-        page: cursor
-      }
-    };
-  }
-}
-var checkFileSupport = () => {
-  if (typeof File === "undefined") {
-    const { process: process2 } = globalThis;
-    const isOldNode = typeof process2?.versions?.node === "string" && parseInt(process2.versions.node.split(".")) < 20;
-    throw new Error("`File` is not defined as a global, which is required for file uploads." + (isOldNode ? " Update to Node 20 LTS or newer, or set `globalThis.File` to `import('node:buffer').File`." : ""));
-  }
-};
-function makeFile(fileBits, fileName, options) {
-  checkFileSupport();
-  return new File(fileBits, fileName ?? "unknown_file", options);
-}
-function getName(value2, stripPath) {
-  const val = typeof value2 === "object" && value2 !== null && (("name" in value2) && value2.name && String(value2.name) || ("url" in value2) && value2.url && String(value2.url) || ("filename" in value2) && value2.filename && String(value2.filename) || ("path" in value2) && value2.path && String(value2.path)) || "";
-  return stripPath ? val.split(/[\\/]/).pop() || undefined : val;
-}
-var isAsyncIterable = (value2) => value2 != null && typeof value2 === "object" && typeof value2[Symbol.asyncIterator] === "function";
-var multipartFormRequestOptions = async (opts, fetch2, stripFilenames = true) => {
-  return { ...opts, body: await createForm(opts.body, fetch2, stripFilenames) };
-};
-var supportsFormDataMap = /* @__PURE__ */ new WeakMap;
-function supportsFormData(fetchObject) {
-  const fetch2 = typeof fetchObject === "function" ? fetchObject : fetchObject.fetch;
-  const cached = supportsFormDataMap.get(fetch2);
-  if (cached)
-    return cached;
-  const promise = (async () => {
-    try {
-      const FetchResponse = "Response" in fetch2 ? fetch2.Response : (await fetch2("data:,")).constructor;
-      const data = new FormData;
-      if (data.toString() === await new FetchResponse(data).text()) {
-        return false;
-      }
-      return true;
-    } catch {
-      return true;
-    }
-  })();
-  supportsFormDataMap.set(fetch2, promise);
-  return promise;
-}
-var createForm = async (body, fetch2, stripFilenames = true) => {
-  if (!await supportsFormData(fetch2)) {
-    throw new TypeError("The provided fetch function does not support file uploads with the current global FormData class.");
-  }
-  const form = new FormData;
-  await Promise.all(Object.entries(body || {}).map(([key, value2]) => addFormValue(form, key, value2, stripFilenames)));
-  return form;
-};
-var isNamedBlob = (value2) => value2 instanceof Blob && ("name" in value2);
-var addFormValue = async (form, key, value2, stripFilenames) => {
-  if (value2 === undefined)
-    return;
-  if (value2 == null) {
-    throw new TypeError(`Received null for "${key}"; to pass null in FormData, you must use the string 'null'`);
-  }
-  if (typeof value2 === "string" || typeof value2 === "number" || typeof value2 === "boolean") {
-    form.append(key, String(value2));
-  } else if (value2 instanceof Response) {
-    let options = {};
-    const contentType = value2.headers.get("Content-Type");
-    if (contentType) {
-      options = { type: contentType };
-    }
-    form.append(key, makeFile([await value2.blob()], getName(value2, stripFilenames), options));
-  } else if (isAsyncIterable(value2)) {
-    form.append(key, makeFile([await new Response(ReadableStreamFrom(value2)).blob()], getName(value2, stripFilenames)));
-  } else if (isNamedBlob(value2)) {
-    form.append(key, makeFile([value2], getName(value2, stripFilenames), { type: value2.type }));
-  } else if (Array.isArray(value2)) {
-    await Promise.all(value2.map((entry) => addFormValue(form, key + "[]", entry, stripFilenames)));
-  } else if (typeof value2 === "object") {
-    await Promise.all(Object.entries(value2).map(([name, prop]) => addFormValue(form, `${key}[${name}]`, prop, stripFilenames)));
-  } else {
-    throw new TypeError(`Invalid value given to form, expected a string, number, boolean, object, Array, File or Blob but got ${value2} instead`);
-  }
-};
-var isBlobLike = (value2) => value2 != null && typeof value2 === "object" && typeof value2.size === "number" && typeof value2.type === "string" && typeof value2.text === "function" && typeof value2.slice === "function" && typeof value2.arrayBuffer === "function";
-var isFileLike = (value2) => value2 != null && typeof value2 === "object" && typeof value2.name === "string" && typeof value2.lastModified === "number" && isBlobLike(value2);
-var isResponseLike = (value2) => value2 != null && typeof value2 === "object" && typeof value2.url === "string" && typeof value2.blob === "function";
-async function toFile(value2, name, options) {
-  checkFileSupport();
-  value2 = await value2;
-  name || (name = getName(value2, true));
-  if (isFileLike(value2)) {
-    if (value2 instanceof File && name == null && options == null) {
-      return value2;
-    }
-    return makeFile([await value2.arrayBuffer()], name ?? value2.name, {
-      type: value2.type,
-      lastModified: value2.lastModified,
-      ...options
-    });
-  }
-  if (isResponseLike(value2)) {
-    const blob = await value2.blob();
-    name || (name = new URL(value2.url).pathname.split(/[\\/]/).pop());
-    return makeFile(await getBytes(blob), name, options);
-  }
-  const parts = await getBytes(value2);
-  if (!options?.type) {
-    const type = parts.find((part) => typeof part === "object" && ("type" in part) && part.type);
-    if (typeof type === "string") {
-      options = { ...options, type };
-    }
-  }
-  return makeFile(parts, name, options);
-}
-async function getBytes(value2) {
-  let parts = [];
-  if (typeof value2 === "string" || ArrayBuffer.isView(value2) || value2 instanceof ArrayBuffer) {
-    parts.push(value2);
-  } else if (isBlobLike(value2)) {
-    parts.push(value2 instanceof Blob ? value2 : await value2.arrayBuffer());
-  } else if (isAsyncIterable(value2)) {
-    for await (const chunk of value2) {
-      parts.push(...await getBytes(chunk));
-    }
-  } else {
-    const constructor = value2?.constructor?.name;
-    throw new Error(`Unexpected data type: ${typeof value2}${constructor ? `; constructor: ${constructor}` : ""}${propsForError(value2)}`);
-  }
-  return parts;
-}
-function propsForError(value2) {
-  if (typeof value2 !== "object" || value2 === null)
-    return "";
-  const props = Object.getOwnPropertyNames(value2);
-  return `; props: [${props.map((p) => `"${p}"`).join(", ")}]`;
-}
-
-class APIResource {
-  constructor(client) {
-    this._client = client;
-  }
-}
-var brand_privateNullableHeaders = Symbol.for("brand.privateNullableHeaders");
-function* iterateHeaders(headers) {
-  if (!headers)
-    return;
-  if (brand_privateNullableHeaders in headers) {
-    const { values, nulls } = headers;
-    yield* values.entries();
-    for (const name of nulls) {
-      yield [name, null];
-    }
-    return;
-  }
-  let shouldClear = false;
-  let iter;
-  if (headers instanceof Headers) {
-    iter = headers.entries();
-  } else if (isReadonlyArray(headers)) {
-    iter = headers;
-  } else {
-    shouldClear = true;
-    iter = Object.entries(headers ?? {});
-  }
-  for (let row of iter) {
-    const name = row[0];
-    if (typeof name !== "string")
-      throw new TypeError("expected header name to be a string");
-    const values = isReadonlyArray(row[1]) ? row[1] : [row[1]];
-    let didClear = false;
-    for (const value2 of values) {
-      if (value2 === undefined)
-        continue;
-      if (shouldClear && !didClear) {
-        didClear = true;
-        yield [name, null];
-      }
-      yield [name, value2];
-    }
-  }
-}
-var buildHeaders = (newHeaders) => {
-  const targetHeaders = new Headers;
-  const nullHeaders = new Set;
-  for (const headers of newHeaders) {
-    const seenHeaders = new Set;
-    for (const [name, value2] of iterateHeaders(headers)) {
-      const lowerName = name.toLowerCase();
-      if (!seenHeaders.has(lowerName)) {
-        targetHeaders.delete(name);
-        seenHeaders.add(lowerName);
-      }
-      if (value2 === null) {
-        targetHeaders.delete(name);
-        nullHeaders.add(lowerName);
-      } else {
-        targetHeaders.append(name, value2);
-        nullHeaders.delete(lowerName);
-      }
-    }
-  }
-  return { [brand_privateNullableHeaders]: true, values: targetHeaders, nulls: nullHeaders };
-};
-var SDK_HELPER_SYMBOL = Symbol("anthropic.sdk.stainlessHelper");
-function wasCreatedByStainlessHelper(value2) {
-  return typeof value2 === "object" && value2 !== null && SDK_HELPER_SYMBOL in value2;
-}
-function collectStainlessHelpers(tools, messages) {
-  const helpers = new Set;
-  if (tools) {
-    for (const tool of tools) {
-      if (wasCreatedByStainlessHelper(tool)) {
-        helpers.add(tool[SDK_HELPER_SYMBOL]);
-      }
-    }
-  }
-  if (messages) {
-    for (const message of messages) {
-      if (wasCreatedByStainlessHelper(message)) {
-        helpers.add(message[SDK_HELPER_SYMBOL]);
-      }
-      if (Array.isArray(message.content)) {
-        for (const block of message.content) {
-          if (wasCreatedByStainlessHelper(block)) {
-            helpers.add(block[SDK_HELPER_SYMBOL]);
-          }
-        }
-      }
-    }
-  }
-  return Array.from(helpers);
-}
-function stainlessHelperHeader(tools, messages) {
-  const helpers = collectStainlessHelpers(tools, messages);
-  if (helpers.length === 0)
-    return {};
-  return { "x-stainless-helper": helpers.join(", ") };
-}
-function stainlessHelperHeaderFromFile(file) {
-  if (wasCreatedByStainlessHelper(file)) {
-    return { "x-stainless-helper": file[SDK_HELPER_SYMBOL] };
-  }
-  return {};
-}
-function encodeURIPath(str) {
-  return str.replace(/[^A-Za-z0-9\-._~!$&'()*+,;=:@]+/g, encodeURIComponent);
-}
-var EMPTY = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.create(null));
-var createPathTagFunction = (pathEncoder = encodeURIPath) => function path(statics, ...params) {
-  if (statics.length === 1)
-    return statics[0];
-  let postPath = false;
-  const invalidSegments = [];
-  const path2 = statics.reduce((previousValue, currentValue, index) => {
-    if (/[?#]/.test(currentValue)) {
-      postPath = true;
-    }
-    const value2 = params[index];
-    let encoded = (postPath ? encodeURIComponent : pathEncoder)("" + value2);
-    if (index !== params.length && (value2 == null || typeof value2 === "object" && value2.toString === Object.getPrototypeOf(Object.getPrototypeOf(value2.hasOwnProperty ?? EMPTY) ?? EMPTY)?.toString)) {
-      encoded = value2 + "";
-      invalidSegments.push({
-        start: previousValue.length + currentValue.length,
-        length: encoded.length,
-        error: `Value of type ${Object.prototype.toString.call(value2).slice(8, -1)} is not a valid path parameter`
-      });
-    }
-    return previousValue + currentValue + (index === params.length ? "" : encoded);
-  }, "");
-  const pathOnly = path2.split(/[?#]/, 1)[0];
-  const invalidSegmentPattern = /(?<=^|\/)(?:\.|%2e){1,2}(?=\/|$)/gi;
-  let match;
-  while ((match = invalidSegmentPattern.exec(pathOnly)) !== null) {
-    invalidSegments.push({
-      start: match.index,
-      length: match[0].length,
-      error: `Value "${match[0]}" can't be safely passed as a path parameter`
-    });
-  }
-  invalidSegments.sort((a, b) => a.start - b.start);
-  if (invalidSegments.length > 0) {
-    let lastEnd = 0;
-    const underline = invalidSegments.reduce((acc, segment) => {
-      const spaces = " ".repeat(segment.start - lastEnd);
-      const arrows = "^".repeat(segment.length);
-      lastEnd = segment.start + segment.length;
-      return acc + spaces + arrows;
-    }, "");
-    throw new AnthropicError(`Path parameters result in path with invalid segments:
-${invalidSegments.map((e) => e.error).join(`
-`)}
-${path2}
-${underline}`);
-  }
-  return path2;
-};
-var path = /* @__PURE__ */ createPathTagFunction(encodeURIPath);
-
-class Files extends APIResource {
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/files", Page, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  delete(fileID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.delete(path`/v1/files/${fileID}`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  download(fileID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path`/v1/files/${fileID}/content`, {
-      ...options,
-      headers: buildHeaders([
-        {
-          "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString(),
-          Accept: "application/binary"
-        },
-        options?.headers
-      ]),
-      __binaryResponse: true
-    });
-  }
-  retrieveMetadata(fileID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path`/v1/files/${fileID}`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  upload(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/files", multipartFormRequestOptions({
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
-        stainlessHelperHeaderFromFile(body.file),
-        options?.headers
-      ])
-    }, this._client));
-  }
-}
-
-class Models extends APIResource {
-  retrieve(modelID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path`/v1/models/${modelID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : undefined },
-        options?.headers
-      ])
-    });
-  }
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/models?beta=true", Page, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : undefined },
-        options?.headers
-      ])
-    });
-  }
-}
-var MODEL_NONSTREAMING_TOKENS = {
-  "claude-opus-4-20250514": 8192,
-  "claude-opus-4-0": 8192,
-  "claude-4-opus-20250514": 8192,
-  "anthropic.claude-opus-4-20250514-v1:0": 8192,
-  "claude-opus-4@20250514": 8192,
-  "claude-opus-4-1-20250805": 8192,
-  "anthropic.claude-opus-4-1-20250805-v1:0": 8192,
-  "claude-opus-4-1@20250805": 8192
-};
-function getOutputFormat(params) {
-  return params?.output_format ?? params?.output_config?.format;
-}
-function maybeParseBetaMessage(message, params, opts) {
-  const outputFormat = getOutputFormat(params);
-  if (!params || !("parse" in (outputFormat ?? {}))) {
-    return {
-      ...message,
-      content: message.content.map((block) => {
-        if (block.type === "text") {
-          const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
-            value: null,
-            enumerable: false
-          });
-          return Object.defineProperty(parsedBlock, "parsed", {
-            get() {
-              opts.logger.warn("The `parsed` property on `text` blocks is deprecated, please use `parsed_output` instead.");
-              return null;
-            },
-            enumerable: false
-          });
-        }
-        return block;
-      }),
-      parsed_output: null
-    };
-  }
-  return parseBetaMessage(message, params, opts);
-}
-function parseBetaMessage(message, params, opts) {
-  let firstParsedOutput = null;
-  const content = message.content.map((block) => {
-    if (block.type === "text") {
-      const parsedOutput = parseBetaOutputFormat(params, block.text);
-      if (firstParsedOutput === null) {
-        firstParsedOutput = parsedOutput;
-      }
-      const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
-        value: parsedOutput,
-        enumerable: false
-      });
-      return Object.defineProperty(parsedBlock, "parsed", {
-        get() {
-          opts.logger.warn("The `parsed` property on `text` blocks is deprecated, please use `parsed_output` instead.");
-          return parsedOutput;
-        },
-        enumerable: false
-      });
-    }
-    return block;
-  });
-  return {
-    ...message,
-    content,
-    parsed_output: firstParsedOutput
-  };
-}
-function parseBetaOutputFormat(params, content) {
-  const outputFormat = getOutputFormat(params);
-  if (outputFormat?.type !== "json_schema") {
-    return null;
-  }
-  try {
-    if ("parse" in outputFormat) {
-      return outputFormat.parse(content);
-    }
-    return JSON.parse(content);
-  } catch (error2) {
-    throw new AnthropicError(`Failed to parse structured output: ${error2}`);
-  }
-}
-var tokenize = (input) => {
-  let current = 0;
-  let tokens = [];
-  while (current < input.length) {
-    let char = input[current];
-    if (char === "\\") {
-      current++;
+  for (const token of tokens) {
+    if (!supportedTokensAddresses.includes(token.address)) {
+      runtime2.log(`unsupported tokens ${token.address}`);
       continue;
     }
-    if (char === "{") {
-      tokens.push({
-        type: "brace",
-        value: "{"
-      });
-      current++;
-      continue;
-    }
-    if (char === "}") {
-      tokens.push({
-        type: "brace",
-        value: "}"
-      });
-      current++;
-      continue;
-    }
-    if (char === "[") {
-      tokens.push({
-        type: "paren",
-        value: "["
-      });
-      current++;
-      continue;
-    }
-    if (char === "]") {
-      tokens.push({
-        type: "paren",
-        value: "]"
-      });
-      current++;
-      continue;
-    }
-    if (char === ":") {
-      tokens.push({
-        type: "separator",
-        value: ":"
-      });
-      current++;
-      continue;
-    }
-    if (char === ",") {
-      tokens.push({
-        type: "delimiter",
-        value: ","
-      });
-      current++;
-      continue;
-    }
-    if (char === '"') {
-      let value2 = "";
-      let danglingQuote = false;
-      char = input[++current];
-      while (char !== '"') {
-        if (current === input.length) {
-          danglingQuote = true;
-          break;
-        }
-        if (char === "\\") {
-          current++;
-          if (current === input.length) {
-            danglingQuote = true;
-            break;
-          }
-          value2 += char + input[current];
-          char = input[++current];
-        } else {
-          value2 += char;
-          char = input[++current];
-        }
-      }
-      char = input[++current];
-      if (!danglingQuote) {
-        tokens.push({
-          type: "string",
-          value: value2
-        });
-      }
-      continue;
-    }
-    let WHITESPACE = /\s/;
-    if (char && WHITESPACE.test(char)) {
-      current++;
-      continue;
-    }
-    let NUMBERS = /[0-9]/;
-    if (char && NUMBERS.test(char) || char === "-" || char === ".") {
-      let value2 = "";
-      if (char === "-") {
-        value2 += char;
-        char = input[++current];
-      }
-      while (char && NUMBERS.test(char) || char === ".") {
-        value2 += char;
-        char = input[++current];
-      }
-      tokens.push({
-        type: "number",
-        value: value2
-      });
-      continue;
-    }
-    let LETTERS = /[a-z]/i;
-    if (char && LETTERS.test(char)) {
-      let value2 = "";
-      while (char && LETTERS.test(char)) {
-        if (current === input.length) {
-          break;
-        }
-        value2 += char;
-        char = input[++current];
-      }
-      if (value2 == "true" || value2 == "false" || value2 === "null") {
-        tokens.push({
-          type: "name",
-          value: value2
-        });
-      } else {
-        current++;
-        continue;
-      }
-      continue;
-    }
-    current++;
+    const priceData = readOnchain(runtime2, evmClient, aggregatorV3_default, "latestRoundData", token.address, []);
+    const tokenPrice = Object.values(priceData)[1];
+    runtime2.log(`price of token ${token.name} is ${BigInt(tokenPrice)}`);
   }
-  return tokens;
-};
-var strip = (tokens) => {
-  if (tokens.length === 0) {
-    return tokens;
-  }
-  let lastToken = tokens[tokens.length - 1];
-  switch (lastToken.type) {
-    case "separator":
-      tokens = tokens.slice(0, tokens.length - 1);
-      return strip(tokens);
-      break;
-    case "number":
-      let lastCharacterOfLastToken = lastToken.value[lastToken.value.length - 1];
-      if (lastCharacterOfLastToken === "." || lastCharacterOfLastToken === "-") {
-        tokens = tokens.slice(0, tokens.length - 1);
-        return strip(tokens);
-      }
-    case "string":
-      let tokenBeforeTheLastToken = tokens[tokens.length - 2];
-      if (tokenBeforeTheLastToken?.type === "delimiter") {
-        tokens = tokens.slice(0, tokens.length - 1);
-        return strip(tokens);
-      } else if (tokenBeforeTheLastToken?.type === "brace" && tokenBeforeTheLastToken.value === "{") {
-        tokens = tokens.slice(0, tokens.length - 1);
-        return strip(tokens);
-      }
-      break;
-    case "delimiter":
-      tokens = tokens.slice(0, tokens.length - 1);
-      return strip(tokens);
-      break;
-  }
-  return tokens;
-};
-var unstrip = (tokens) => {
-  let tail = [];
-  tokens.map((token) => {
-    if (token.type === "brace") {
-      if (token.value === "{") {
-        tail.push("}");
-      } else {
-        tail.splice(tail.lastIndexOf("}"), 1);
-      }
-    }
-    if (token.type === "paren") {
-      if (token.value === "[") {
-        tail.push("]");
-      } else {
-        tail.splice(tail.lastIndexOf("]"), 1);
-      }
-    }
-  });
-  if (tail.length > 0) {
-    tail.reverse().map((item) => {
-      if (item === "}") {
-        tokens.push({
-          type: "brace",
-          value: "}"
-        });
-      } else if (item === "]") {
-        tokens.push({
-          type: "paren",
-          value: "]"
-        });
-      }
-    });
-  }
-  return tokens;
-};
-var generate = (tokens) => {
-  let output = "";
-  tokens.map((token) => {
-    switch (token.type) {
-      case "string":
-        output += '"' + token.value + '"';
-        break;
-      default:
-        output += token.value;
-        break;
-    }
-  });
-  return output;
-};
-var partialParse = (input) => JSON.parse(generate(unstrip(strip(tokenize(input)))));
-var _BetaMessageStream_instances;
-var _BetaMessageStream_currentMessageSnapshot;
-var _BetaMessageStream_params;
-var _BetaMessageStream_connectedPromise;
-var _BetaMessageStream_resolveConnectedPromise;
-var _BetaMessageStream_rejectConnectedPromise;
-var _BetaMessageStream_endPromise;
-var _BetaMessageStream_resolveEndPromise;
-var _BetaMessageStream_rejectEndPromise;
-var _BetaMessageStream_listeners;
-var _BetaMessageStream_ended;
-var _BetaMessageStream_errored;
-var _BetaMessageStream_aborted;
-var _BetaMessageStream_catchingPromiseCreated;
-var _BetaMessageStream_response;
-var _BetaMessageStream_request_id;
-var _BetaMessageStream_logger;
-var _BetaMessageStream_getFinalMessage;
-var _BetaMessageStream_getFinalText;
-var _BetaMessageStream_handleError;
-var _BetaMessageStream_beginRequest;
-var _BetaMessageStream_addStreamEvent;
-var _BetaMessageStream_endRequest;
-var _BetaMessageStream_accumulateMessage;
-var JSON_BUF_PROPERTY = "__json_buf";
-function tracksToolInput(content) {
-  return content.type === "tool_use" || content.type === "server_tool_use" || content.type === "mcp_tool_use";
+  return tokenPricesInUsd;
 }
-
-class BetaMessageStream {
-  constructor(params, opts) {
-    _BetaMessageStream_instances.add(this);
-    this.messages = [];
-    this.receivedMessages = [];
-    _BetaMessageStream_currentMessageSnapshot.set(this, undefined);
-    _BetaMessageStream_params.set(this, null);
-    this.controller = new AbortController;
-    _BetaMessageStream_connectedPromise.set(this, undefined);
-    _BetaMessageStream_resolveConnectedPromise.set(this, () => {});
-    _BetaMessageStream_rejectConnectedPromise.set(this, () => {});
-    _BetaMessageStream_endPromise.set(this, undefined);
-    _BetaMessageStream_resolveEndPromise.set(this, () => {});
-    _BetaMessageStream_rejectEndPromise.set(this, () => {});
-    _BetaMessageStream_listeners.set(this, {});
-    _BetaMessageStream_ended.set(this, false);
-    _BetaMessageStream_errored.set(this, false);
-    _BetaMessageStream_aborted.set(this, false);
-    _BetaMessageStream_catchingPromiseCreated.set(this, false);
-    _BetaMessageStream_response.set(this, undefined);
-    _BetaMessageStream_request_id.set(this, undefined);
-    _BetaMessageStream_logger.set(this, undefined);
-    _BetaMessageStream_handleError.set(this, (error2) => {
-      __classPrivateFieldSet(this, _BetaMessageStream_errored, true, "f");
-      if (isAbortError(error2)) {
-        error2 = new APIUserAbortError;
-      }
-      if (error2 instanceof APIUserAbortError) {
-        __classPrivateFieldSet(this, _BetaMessageStream_aborted, true, "f");
-        return this._emit("abort", error2);
-      }
-      if (error2 instanceof AnthropicError) {
-        return this._emit("error", error2);
-      }
-      if (error2 instanceof Error) {
-        const anthropicError = new AnthropicError(error2.message);
-        anthropicError.cause = error2;
-        return this._emit("error", anthropicError);
-      }
-      return this._emit("error", new AnthropicError(String(error2)));
-    });
-    __classPrivateFieldSet(this, _BetaMessageStream_connectedPromise, new Promise((resolve, reject) => {
-      __classPrivateFieldSet(this, _BetaMessageStream_resolveConnectedPromise, resolve, "f");
-      __classPrivateFieldSet(this, _BetaMessageStream_rejectConnectedPromise, reject, "f");
-    }), "f");
-    __classPrivateFieldSet(this, _BetaMessageStream_endPromise, new Promise((resolve, reject) => {
-      __classPrivateFieldSet(this, _BetaMessageStream_resolveEndPromise, resolve, "f");
-      __classPrivateFieldSet(this, _BetaMessageStream_rejectEndPromise, reject, "f");
-    }), "f");
-    __classPrivateFieldGet(this, _BetaMessageStream_connectedPromise, "f").catch(() => {});
-    __classPrivateFieldGet(this, _BetaMessageStream_endPromise, "f").catch(() => {});
-    __classPrivateFieldSet(this, _BetaMessageStream_params, params, "f");
-    __classPrivateFieldSet(this, _BetaMessageStream_logger, opts?.logger ?? console, "f");
-  }
-  get response() {
-    return __classPrivateFieldGet(this, _BetaMessageStream_response, "f");
-  }
-  get request_id() {
-    return __classPrivateFieldGet(this, _BetaMessageStream_request_id, "f");
-  }
-  async withResponse() {
-    __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
-    const response = await __classPrivateFieldGet(this, _BetaMessageStream_connectedPromise, "f");
-    if (!response) {
-      throw new Error("Could not resolve a `Response` object");
-    }
-    return {
-      data: this,
-      response,
-      request_id: response.headers.get("request-id")
-    };
-  }
-  static fromReadableStream(stream) {
-    const runner = new BetaMessageStream(null);
-    runner._run(() => runner._fromReadableStream(stream));
-    return runner;
-  }
-  static createMessage(messages, params, options, { logger } = {}) {
-    const runner = new BetaMessageStream(params, { logger });
-    for (const message of params.messages) {
-      runner._addMessageParam(message);
-    }
-    __classPrivateFieldSet(runner, _BetaMessageStream_params, { ...params, stream: true }, "f");
-    runner._run(() => runner._createMessage(messages, { ...params, stream: true }, { ...options, headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" } }));
-    return runner;
-  }
-  _run(executor) {
-    executor().then(() => {
-      this._emitFinal();
-      this._emit("end");
-    }, __classPrivateFieldGet(this, _BetaMessageStream_handleError, "f"));
-  }
-  _addMessageParam(message) {
-    this.messages.push(message);
-  }
-  _addMessage(message, emit = true) {
-    this.receivedMessages.push(message);
-    if (emit) {
-      this._emit("message", message);
-    }
-  }
-  async _createMessage(messages, params, options) {
-    const signal = options?.signal;
-    let abortHandler;
-    if (signal) {
-      if (signal.aborted)
-        this.controller.abort();
-      abortHandler = this.controller.abort.bind(this.controller);
-      signal.addEventListener("abort", abortHandler);
-    }
-    try {
-      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_beginRequest).call(this);
-      const { response, data: stream } = await messages.create({ ...params, stream: true }, { ...options, signal: this.controller.signal }).withResponse();
-      this._connected(response);
-      for await (const event of stream) {
-        __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_addStreamEvent).call(this, event);
-      }
-      if (stream.controller.signal?.aborted) {
-        throw new APIUserAbortError;
-      }
-      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_endRequest).call(this);
-    } finally {
-      if (signal && abortHandler) {
-        signal.removeEventListener("abort", abortHandler);
-      }
-    }
-  }
-  _connected(response) {
-    if (this.ended)
-      return;
-    __classPrivateFieldSet(this, _BetaMessageStream_response, response, "f");
-    __classPrivateFieldSet(this, _BetaMessageStream_request_id, response?.headers.get("request-id"), "f");
-    __classPrivateFieldGet(this, _BetaMessageStream_resolveConnectedPromise, "f").call(this, response);
-    this._emit("connect");
-  }
-  get ended() {
-    return __classPrivateFieldGet(this, _BetaMessageStream_ended, "f");
-  }
-  get errored() {
-    return __classPrivateFieldGet(this, _BetaMessageStream_errored, "f");
-  }
-  get aborted() {
-    return __classPrivateFieldGet(this, _BetaMessageStream_aborted, "f");
-  }
-  abort() {
-    this.controller.abort();
-  }
-  on(event, listener) {
-    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] = []);
-    listeners.push({ listener });
-    return this;
-  }
-  off(event, listener) {
-    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event];
-    if (!listeners)
-      return this;
-    const index = listeners.findIndex((l) => l.listener === listener);
-    if (index >= 0)
-      listeners.splice(index, 1);
-    return this;
-  }
-  once(event, listener) {
-    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] = []);
-    listeners.push({ listener, once: true });
-    return this;
-  }
-  emitted(event) {
-    return new Promise((resolve, reject) => {
-      __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
-      if (event !== "error")
-        this.once("error", reject);
-      this.once(event, resolve);
-    });
-  }
-  async done() {
-    __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
-    await __classPrivateFieldGet(this, _BetaMessageStream_endPromise, "f");
-  }
-  get currentMessage() {
-    return __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
-  }
-  async finalMessage() {
-    await this.done();
-    return __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_getFinalMessage).call(this);
-  }
-  async finalText() {
-    await this.done();
-    return __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_getFinalText).call(this);
-  }
-  _emit(event, ...args) {
-    if (__classPrivateFieldGet(this, _BetaMessageStream_ended, "f"))
-      return;
-    if (event === "end") {
-      __classPrivateFieldSet(this, _BetaMessageStream_ended, true, "f");
-      __classPrivateFieldGet(this, _BetaMessageStream_resolveEndPromise, "f").call(this);
-    }
-    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event];
-    if (listeners) {
-      __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
-      listeners.forEach(({ listener }) => listener(...args));
-    }
-    if (event === "abort") {
-      const error2 = args[0];
-      if (!__classPrivateFieldGet(this, _BetaMessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
-        Promise.reject(error2);
-      }
-      __classPrivateFieldGet(this, _BetaMessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet(this, _BetaMessageStream_rejectEndPromise, "f").call(this, error2);
-      this._emit("end");
-      return;
-    }
-    if (event === "error") {
-      const error2 = args[0];
-      if (!__classPrivateFieldGet(this, _BetaMessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
-        Promise.reject(error2);
-      }
-      __classPrivateFieldGet(this, _BetaMessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet(this, _BetaMessageStream_rejectEndPromise, "f").call(this, error2);
-      this._emit("end");
-    }
-  }
-  _emitFinal() {
-    const finalMessage = this.receivedMessages.at(-1);
-    if (finalMessage) {
-      this._emit("finalMessage", __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_getFinalMessage).call(this));
-    }
-  }
-  async _fromReadableStream(readableStream, options) {
-    const signal = options?.signal;
-    let abortHandler;
-    if (signal) {
-      if (signal.aborted)
-        this.controller.abort();
-      abortHandler = this.controller.abort.bind(this.controller);
-      signal.addEventListener("abort", abortHandler);
-    }
-    try {
-      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_beginRequest).call(this);
-      this._connected(null);
-      const stream = Stream.fromReadableStream(readableStream, this.controller);
-      for await (const event of stream) {
-        __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_addStreamEvent).call(this, event);
-      }
-      if (stream.controller.signal?.aborted) {
-        throw new APIUserAbortError;
-      }
-      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_endRequest).call(this);
-    } finally {
-      if (signal && abortHandler) {
-        signal.removeEventListener("abort", abortHandler);
-      }
-    }
-  }
-  [(_BetaMessageStream_currentMessageSnapshot = new WeakMap, _BetaMessageStream_params = new WeakMap, _BetaMessageStream_connectedPromise = new WeakMap, _BetaMessageStream_resolveConnectedPromise = new WeakMap, _BetaMessageStream_rejectConnectedPromise = new WeakMap, _BetaMessageStream_endPromise = new WeakMap, _BetaMessageStream_resolveEndPromise = new WeakMap, _BetaMessageStream_rejectEndPromise = new WeakMap, _BetaMessageStream_listeners = new WeakMap, _BetaMessageStream_ended = new WeakMap, _BetaMessageStream_errored = new WeakMap, _BetaMessageStream_aborted = new WeakMap, _BetaMessageStream_catchingPromiseCreated = new WeakMap, _BetaMessageStream_response = new WeakMap, _BetaMessageStream_request_id = new WeakMap, _BetaMessageStream_logger = new WeakMap, _BetaMessageStream_handleError = new WeakMap, _BetaMessageStream_instances = new WeakSet, _BetaMessageStream_getFinalMessage = function _BetaMessageStream_getFinalMessage2() {
-    if (this.receivedMessages.length === 0) {
-      throw new AnthropicError("stream ended without producing a Message with role=assistant");
-    }
-    return this.receivedMessages.at(-1);
-  }, _BetaMessageStream_getFinalText = function _BetaMessageStream_getFinalText2() {
-    if (this.receivedMessages.length === 0) {
-      throw new AnthropicError("stream ended without producing a Message with role=assistant");
-    }
-    const textBlocks = this.receivedMessages.at(-1).content.filter((block) => block.type === "text").map((block) => block.text);
-    if (textBlocks.length === 0) {
-      throw new AnthropicError("stream ended without producing a content block with type=text");
-    }
-    return textBlocks.join(" ");
-  }, _BetaMessageStream_beginRequest = function _BetaMessageStream_beginRequest2() {
-    if (this.ended)
-      return;
-    __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, undefined, "f");
-  }, _BetaMessageStream_addStreamEvent = function _BetaMessageStream_addStreamEvent2(event) {
-    if (this.ended)
-      return;
-    const messageSnapshot = __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_accumulateMessage).call(this, event);
-    this._emit("streamEvent", event, messageSnapshot);
-    switch (event.type) {
-      case "content_block_delta": {
-        const content = messageSnapshot.content.at(-1);
-        switch (event.delta.type) {
-          case "text_delta": {
-            if (content.type === "text") {
-              this._emit("text", event.delta.text, content.text || "");
-            }
-            break;
-          }
-          case "citations_delta": {
-            if (content.type === "text") {
-              this._emit("citation", event.delta.citation, content.citations ?? []);
-            }
-            break;
-          }
-          case "input_json_delta": {
-            if (tracksToolInput(content) && content.input) {
-              this._emit("inputJson", event.delta.partial_json, content.input);
-            }
-            break;
-          }
-          case "thinking_delta": {
-            if (content.type === "thinking") {
-              this._emit("thinking", event.delta.thinking, content.thinking);
-            }
-            break;
-          }
-          case "signature_delta": {
-            if (content.type === "thinking") {
-              this._emit("signature", content.signature);
-            }
-            break;
-          }
-          case "compaction_delta": {
-            if (content.type === "compaction" && content.content) {
-              this._emit("compaction", content.content);
-            }
-            break;
-          }
-          default:
-            checkNever(event.delta);
-        }
-        break;
-      }
-      case "message_stop": {
-        this._addMessageParam(messageSnapshot);
-        this._addMessage(maybeParseBetaMessage(messageSnapshot, __classPrivateFieldGet(this, _BetaMessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _BetaMessageStream_logger, "f") }), true);
-        break;
-      }
-      case "content_block_stop": {
-        this._emit("contentBlock", messageSnapshot.content.at(-1));
-        break;
-      }
-      case "message_start": {
-        __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, messageSnapshot, "f");
-        break;
-      }
-      case "content_block_start":
-      case "message_delta":
-        break;
-    }
-  }, _BetaMessageStream_endRequest = function _BetaMessageStream_endRequest2() {
-    if (this.ended) {
-      throw new AnthropicError(`stream has ended, this shouldn't happen`);
-    }
-    const snapshot = __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
-    if (!snapshot) {
-      throw new AnthropicError(`request ended without sending any chunks`);
-    }
-    __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, undefined, "f");
-    return maybeParseBetaMessage(snapshot, __classPrivateFieldGet(this, _BetaMessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _BetaMessageStream_logger, "f") });
-  }, _BetaMessageStream_accumulateMessage = function _BetaMessageStream_accumulateMessage2(event) {
-    let snapshot = __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
-    if (event.type === "message_start") {
-      if (snapshot) {
-        throw new AnthropicError(`Unexpected event order, got ${event.type} before receiving "message_stop"`);
-      }
-      return event.message;
-    }
-    if (!snapshot) {
-      throw new AnthropicError(`Unexpected event order, got ${event.type} before "message_start"`);
-    }
-    switch (event.type) {
-      case "message_stop":
-        return snapshot;
-      case "message_delta":
-        snapshot.container = event.delta.container;
-        snapshot.stop_reason = event.delta.stop_reason;
-        snapshot.stop_sequence = event.delta.stop_sequence;
-        snapshot.usage.output_tokens = event.usage.output_tokens;
-        snapshot.context_management = event.context_management;
-        if (event.usage.input_tokens != null) {
-          snapshot.usage.input_tokens = event.usage.input_tokens;
-        }
-        if (event.usage.cache_creation_input_tokens != null) {
-          snapshot.usage.cache_creation_input_tokens = event.usage.cache_creation_input_tokens;
-        }
-        if (event.usage.cache_read_input_tokens != null) {
-          snapshot.usage.cache_read_input_tokens = event.usage.cache_read_input_tokens;
-        }
-        if (event.usage.server_tool_use != null) {
-          snapshot.usage.server_tool_use = event.usage.server_tool_use;
-        }
-        if (event.usage.iterations != null) {
-          snapshot.usage.iterations = event.usage.iterations;
-        }
-        return snapshot;
-      case "content_block_start":
-        snapshot.content.push(event.content_block);
-        return snapshot;
-      case "content_block_delta": {
-        const snapshotContent = snapshot.content.at(event.index);
-        switch (event.delta.type) {
-          case "text_delta": {
-            if (snapshotContent?.type === "text") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                text: (snapshotContent.text || "") + event.delta.text
-              };
-            }
-            break;
-          }
-          case "citations_delta": {
-            if (snapshotContent?.type === "text") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                citations: [...snapshotContent.citations ?? [], event.delta.citation]
-              };
-            }
-            break;
-          }
-          case "input_json_delta": {
-            if (snapshotContent && tracksToolInput(snapshotContent)) {
-              let jsonBuf = snapshotContent[JSON_BUF_PROPERTY] || "";
-              jsonBuf += event.delta.partial_json;
-              const newContent = { ...snapshotContent };
-              Object.defineProperty(newContent, JSON_BUF_PROPERTY, {
-                value: jsonBuf,
-                enumerable: false,
-                writable: true
-              });
-              if (jsonBuf) {
-                try {
-                  newContent.input = partialParse(jsonBuf);
-                } catch (err) {
-                  const error2 = new AnthropicError(`Unable to parse tool parameter JSON from model. Please retry your request or adjust your prompt. Error: ${err}. JSON: ${jsonBuf}`);
-                  __classPrivateFieldGet(this, _BetaMessageStream_handleError, "f").call(this, error2);
-                }
-              }
-              snapshot.content[event.index] = newContent;
-            }
-            break;
-          }
-          case "thinking_delta": {
-            if (snapshotContent?.type === "thinking") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                thinking: snapshotContent.thinking + event.delta.thinking
-              };
-            }
-            break;
-          }
-          case "signature_delta": {
-            if (snapshotContent?.type === "thinking") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                signature: event.delta.signature
-              };
-            }
-            break;
-          }
-          case "compaction_delta": {
-            if (snapshotContent?.type === "compaction") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                content: (snapshotContent.content || "") + event.delta.content
-              };
-            }
-            break;
-          }
-          default:
-            checkNever(event.delta);
-        }
-        return snapshot;
-      }
-      case "content_block_stop":
-        return snapshot;
-    }
-  }, Symbol.asyncIterator)]() {
-    const pushQueue = [];
-    const readQueue = [];
-    let done = false;
-    this.on("streamEvent", (event) => {
-      const reader = readQueue.shift();
-      if (reader) {
-        reader.resolve(event);
-      } else {
-        pushQueue.push(event);
-      }
-    });
-    this.on("end", () => {
-      done = true;
-      for (const reader of readQueue) {
-        reader.resolve(undefined);
-      }
-      readQueue.length = 0;
-    });
-    this.on("abort", (err) => {
-      done = true;
-      for (const reader of readQueue) {
-        reader.reject(err);
-      }
-      readQueue.length = 0;
-    });
-    this.on("error", (err) => {
-      done = true;
-      for (const reader of readQueue) {
-        reader.reject(err);
-      }
-      readQueue.length = 0;
-    });
-    return {
-      next: async () => {
-        if (!pushQueue.length) {
-          if (done) {
-            return { value: undefined, done: true };
-          }
-          return new Promise((resolve, reject) => readQueue.push({ resolve, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: undefined, done: true });
-        }
-        const chunk = pushQueue.shift();
-        return { value: chunk, done: false };
-      },
-      return: async () => {
-        this.abort();
-        return { value: undefined, done: true };
-      }
-    };
-  }
-  toReadableStream() {
-    const stream = new Stream(this[Symbol.asyncIterator].bind(this), this.controller);
-    return stream.toReadableStream();
-  }
-}
-function checkNever(x) {}
-
-class ToolError extends Error {
-  constructor(content) {
-    const message = typeof content === "string" ? content : content.map((block) => {
-      if (block.type === "text")
-        return block.text;
-      return `[${block.type}]`;
-    }).join(" ");
-    super(message);
-    this.name = "ToolError";
-    this.content = content;
-  }
-}
-var DEFAULT_TOKEN_THRESHOLD = 1e5;
-var DEFAULT_SUMMARY_PROMPT = `You have been working on the task described above but have not yet completed it. Write a continuation summary that will allow you (or another instance of yourself) to resume work efficiently in a future context window where the conversation history will be replaced with this summary. Your summary should be structured, concise, and actionable. Include:
-1. Task Overview
-The user's core request and success criteria
-Any clarifications or constraints they specified
-2. Current State
-What has been completed so far
-Files created, modified, or analyzed (with paths if relevant)
-Key outputs or artifacts produced
-3. Important Discoveries
-Technical constraints or requirements uncovered
-Decisions made and their rationale
-Errors encountered and how they were resolved
-What approaches were tried that didn't work (and why)
-4. Next Steps
-Specific actions needed to complete the task
-Any blockers or open questions to resolve
-Priority order if multiple steps remain
-5. Context to Preserve
-User preferences or style requirements
-Domain-specific details that aren't obvious
-Any promises made to the user
-Be concise but complete—err on the side of including information that would prevent duplicate work or repeated mistakes. Write in a way that enables immediate resumption of the task.
-Wrap your summary in <summary></summary> tags.`;
-var _BetaToolRunner_instances;
-var _BetaToolRunner_consumed;
-var _BetaToolRunner_mutated;
-var _BetaToolRunner_state;
-var _BetaToolRunner_options;
-var _BetaToolRunner_message;
-var _BetaToolRunner_toolResponse;
-var _BetaToolRunner_completion;
-var _BetaToolRunner_iterationCount;
-var _BetaToolRunner_checkAndCompact;
-var _BetaToolRunner_generateToolResponse;
-function promiseWithResolvers() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-class BetaToolRunner {
-  constructor(client, params, options) {
-    _BetaToolRunner_instances.add(this);
-    this.client = client;
-    _BetaToolRunner_consumed.set(this, false);
-    _BetaToolRunner_mutated.set(this, false);
-    _BetaToolRunner_state.set(this, undefined);
-    _BetaToolRunner_options.set(this, undefined);
-    _BetaToolRunner_message.set(this, undefined);
-    _BetaToolRunner_toolResponse.set(this, undefined);
-    _BetaToolRunner_completion.set(this, undefined);
-    _BetaToolRunner_iterationCount.set(this, 0);
-    __classPrivateFieldSet(this, _BetaToolRunner_state, {
-      params: {
-        ...params,
-        messages: structuredClone(params.messages)
-      }
-    }, "f");
-    const helpers = collectStainlessHelpers(params.tools, params.messages);
-    const helperValue = ["BetaToolRunner", ...helpers].join(", ");
-    __classPrivateFieldSet(this, _BetaToolRunner_options, {
-      ...options,
-      headers: buildHeaders([{ "x-stainless-helper": helperValue }, options?.headers])
-    }, "f");
-    __classPrivateFieldSet(this, _BetaToolRunner_completion, promiseWithResolvers(), "f");
-  }
-  async* [(_BetaToolRunner_consumed = new WeakMap, _BetaToolRunner_mutated = new WeakMap, _BetaToolRunner_state = new WeakMap, _BetaToolRunner_options = new WeakMap, _BetaToolRunner_message = new WeakMap, _BetaToolRunner_toolResponse = new WeakMap, _BetaToolRunner_completion = new WeakMap, _BetaToolRunner_iterationCount = new WeakMap, _BetaToolRunner_instances = new WeakSet, _BetaToolRunner_checkAndCompact = async function _BetaToolRunner_checkAndCompact2() {
-    const compactionControl = __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.compactionControl;
-    if (!compactionControl || !compactionControl.enabled) {
-      return false;
-    }
-    let tokensUsed = 0;
-    if (__classPrivateFieldGet(this, _BetaToolRunner_message, "f") !== undefined) {
-      try {
-        const message = await __classPrivateFieldGet(this, _BetaToolRunner_message, "f");
-        const totalInputTokens = message.usage.input_tokens + (message.usage.cache_creation_input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0);
-        tokensUsed = totalInputTokens + message.usage.output_tokens;
-      } catch {
-        return false;
-      }
-    }
-    const threshold = compactionControl.contextTokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
-    if (tokensUsed < threshold) {
-      return false;
-    }
-    const model = compactionControl.model ?? __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.model;
-    const summaryPrompt = compactionControl.summaryPrompt ?? DEFAULT_SUMMARY_PROMPT;
-    const messages = __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages;
-    if (messages[messages.length - 1].role === "assistant") {
-      const lastMessage = messages[messages.length - 1];
-      if (Array.isArray(lastMessage.content)) {
-        const nonToolBlocks = lastMessage.content.filter((block) => block.type !== "tool_use");
-        if (nonToolBlocks.length === 0) {
-          messages.pop();
-        } else {
-          lastMessage.content = nonToolBlocks;
-        }
-      }
-    }
-    const response = await this.client.beta.messages.create({
-      model,
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: summaryPrompt
-            }
-          ]
-        }
-      ],
-      max_tokens: __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.max_tokens
-    }, {
-      headers: { "x-stainless-helper": "compaction" }
-    });
-    if (response.content[0]?.type !== "text") {
-      throw new AnthropicError("Expected text response for compaction");
-    }
-    __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages = [
-      {
-        role: "user",
-        content: response.content
-      }
-    ];
-    return true;
-  }, Symbol.asyncIterator)]() {
-    var _a;
-    if (__classPrivateFieldGet(this, _BetaToolRunner_consumed, "f")) {
-      throw new AnthropicError("Cannot iterate over a consumed stream");
-    }
-    __classPrivateFieldSet(this, _BetaToolRunner_consumed, true, "f");
-    __classPrivateFieldSet(this, _BetaToolRunner_mutated, true, "f");
-    __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, undefined, "f");
-    try {
-      while (true) {
-        let stream;
-        try {
-          if (__classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.max_iterations && __classPrivateFieldGet(this, _BetaToolRunner_iterationCount, "f") >= __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.max_iterations) {
-            break;
-          }
-          __classPrivateFieldSet(this, _BetaToolRunner_mutated, false, "f");
-          __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, undefined, "f");
-          __classPrivateFieldSet(this, _BetaToolRunner_iterationCount, (_a = __classPrivateFieldGet(this, _BetaToolRunner_iterationCount, "f"), _a++, _a), "f");
-          __classPrivateFieldSet(this, _BetaToolRunner_message, undefined, "f");
-          const { max_iterations, compactionControl, ...params } = __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params;
-          if (params.stream) {
-            stream = this.client.beta.messages.stream({ ...params }, __classPrivateFieldGet(this, _BetaToolRunner_options, "f"));
-            __classPrivateFieldSet(this, _BetaToolRunner_message, stream.finalMessage(), "f");
-            __classPrivateFieldGet(this, _BetaToolRunner_message, "f").catch(() => {});
-            yield stream;
-          } else {
-            __classPrivateFieldSet(this, _BetaToolRunner_message, this.client.beta.messages.create({ ...params, stream: false }, __classPrivateFieldGet(this, _BetaToolRunner_options, "f")), "f");
-            yield __classPrivateFieldGet(this, _BetaToolRunner_message, "f");
-          }
-          const isCompacted = await __classPrivateFieldGet(this, _BetaToolRunner_instances, "m", _BetaToolRunner_checkAndCompact).call(this);
-          if (!isCompacted) {
-            if (!__classPrivateFieldGet(this, _BetaToolRunner_mutated, "f")) {
-              const { role, content } = await __classPrivateFieldGet(this, _BetaToolRunner_message, "f");
-              __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages.push({ role, content });
-            }
-            const toolMessage = await __classPrivateFieldGet(this, _BetaToolRunner_instances, "m", _BetaToolRunner_generateToolResponse).call(this, __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages.at(-1));
-            if (toolMessage) {
-              __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages.push(toolMessage);
-            } else if (!__classPrivateFieldGet(this, _BetaToolRunner_mutated, "f")) {
-              break;
-            }
-          }
-        } finally {
-          if (stream) {
-            stream.abort();
-          }
-        }
-      }
-      if (!__classPrivateFieldGet(this, _BetaToolRunner_message, "f")) {
-        throw new AnthropicError("ToolRunner concluded without a message from the server");
-      }
-      __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").resolve(await __classPrivateFieldGet(this, _BetaToolRunner_message, "f"));
-    } catch (error2) {
-      __classPrivateFieldSet(this, _BetaToolRunner_consumed, false, "f");
-      __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").promise.catch(() => {});
-      __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").reject(error2);
-      __classPrivateFieldSet(this, _BetaToolRunner_completion, promiseWithResolvers(), "f");
-      throw error2;
-    }
-  }
-  setMessagesParams(paramsOrMutator) {
-    if (typeof paramsOrMutator === "function") {
-      __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params = paramsOrMutator(__classPrivateFieldGet(this, _BetaToolRunner_state, "f").params);
-    } else {
-      __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params = paramsOrMutator;
-    }
-    __classPrivateFieldSet(this, _BetaToolRunner_mutated, true, "f");
-    __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, undefined, "f");
-  }
-  async generateToolResponse() {
-    const message = await __classPrivateFieldGet(this, _BetaToolRunner_message, "f") ?? this.params.messages.at(-1);
-    if (!message) {
-      return null;
-    }
-    return __classPrivateFieldGet(this, _BetaToolRunner_instances, "m", _BetaToolRunner_generateToolResponse).call(this, message);
-  }
-  done() {
-    return __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").promise;
-  }
-  async runUntilDone() {
-    if (!__classPrivateFieldGet(this, _BetaToolRunner_consumed, "f")) {
-      for await (const _ of this) {}
-    }
-    return this.done();
-  }
-  get params() {
-    return __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params;
-  }
-  pushMessages(...messages) {
-    this.setMessagesParams((params) => ({
-      ...params,
-      messages: [...params.messages, ...messages]
-    }));
-  }
-  then(onfulfilled, onrejected) {
-    return this.runUntilDone().then(onfulfilled, onrejected);
-  }
-}
-_BetaToolRunner_generateToolResponse = async function _BetaToolRunner_generateToolResponse2(lastMessage) {
-  if (__classPrivateFieldGet(this, _BetaToolRunner_toolResponse, "f") !== undefined) {
-    return __classPrivateFieldGet(this, _BetaToolRunner_toolResponse, "f");
-  }
-  __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, generateToolResponse(__classPrivateFieldGet(this, _BetaToolRunner_state, "f").params, lastMessage), "f");
-  return __classPrivateFieldGet(this, _BetaToolRunner_toolResponse, "f");
-};
-async function generateToolResponse(params, lastMessage = params.messages.at(-1)) {
-  if (!lastMessage || lastMessage.role !== "assistant" || !lastMessage.content || typeof lastMessage.content === "string") {
-    return null;
-  }
-  const toolUseBlocks = lastMessage.content.filter((content) => content.type === "tool_use");
-  if (toolUseBlocks.length === 0) {
-    return null;
-  }
-  const toolResults = await Promise.all(toolUseBlocks.map(async (toolUse) => {
-    const tool = params.tools.find((t) => ("name" in t ? t.name : t.mcp_server_name) === toolUse.name);
-    if (!tool || !("run" in tool)) {
-      return {
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: `Error: Tool '${toolUse.name}' not found`,
-        is_error: true
-      };
-    }
-    try {
-      let input = toolUse.input;
-      if ("parse" in tool && tool.parse) {
-        input = tool.parse(input);
-      }
-      const result = await tool.run(input);
-      return {
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: result
-      };
-    } catch (error2) {
-      return {
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: error2 instanceof ToolError ? error2.content : `Error: ${error2 instanceof Error ? error2.message : String(error2)}`,
-        is_error: true
-      };
-    }
-  }));
-  return {
-    role: "user",
-    content: toolResults
-  };
-}
-
-class JSONLDecoder {
-  constructor(iterator, controller) {
-    this.iterator = iterator;
-    this.controller = controller;
-  }
-  async* decoder() {
-    const lineDecoder = new LineDecoder;
-    for await (const chunk of this.iterator) {
-      for (const line of lineDecoder.decode(chunk)) {
-        yield JSON.parse(line);
-      }
-    }
-    for (const line of lineDecoder.flush()) {
-      yield JSON.parse(line);
-    }
-  }
-  [Symbol.asyncIterator]() {
-    return this.decoder();
-  }
-  static fromResponse(response, controller) {
-    if (!response.body) {
-      controller.abort();
-      if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
-        throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
-      }
-      throw new AnthropicError(`Attempted to iterate over a response with no body`);
-    }
-    return new JSONLDecoder(ReadableStreamToAsyncIterable(response.body), controller);
-  }
-}
-
-class Batches extends APIResource {
-  create(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/messages/batches?beta=true", {
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  retrieve(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path`/v1/messages/batches/${messageBatchID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/messages/batches?beta=true", Page, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  delete(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.delete(path`/v1/messages/batches/${messageBatchID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  cancel(messageBatchID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.post(path`/v1/messages/batches/${messageBatchID}/cancel?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  async results(messageBatchID, params = {}, options) {
-    const batch = await this.retrieve(messageBatchID);
-    if (!batch.results_url) {
-      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
-    }
-    const { betas } = params ?? {};
-    return this._client.get(batch.results_url, {
-      ...options,
-      headers: buildHeaders([
-        {
-          "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-          Accept: "application/binary"
-        },
-        options?.headers
-      ]),
-      stream: true,
-      __binaryResponse: true
-    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
-  }
-}
-var DEPRECATED_MODELS = {
-  "claude-1.3": "November 6th, 2024",
-  "claude-1.3-100k": "November 6th, 2024",
-  "claude-instant-1.1": "November 6th, 2024",
-  "claude-instant-1.1-100k": "November 6th, 2024",
-  "claude-instant-1.2": "November 6th, 2024",
-  "claude-3-sonnet-20240229": "July 21st, 2025",
-  "claude-3-opus-20240229": "January 5th, 2026",
-  "claude-2.1": "July 21st, 2025",
-  "claude-2.0": "July 21st, 2025",
-  "claude-3-7-sonnet-latest": "February 19th, 2026",
-  "claude-3-7-sonnet-20250219": "February 19th, 2026"
-};
-var MODELS_TO_WARN_WITH_THINKING_ENABLED = ["claude-opus-4-6"];
-
-class Messages extends APIResource {
-  constructor() {
-    super(...arguments);
-    this.batches = new Batches(this._client);
-  }
-  create(params, options) {
-    const modifiedParams = transformOutputFormat(params);
-    const { betas, ...body } = modifiedParams;
-    if (body.model in DEPRECATED_MODELS) {
-      console.warn(`The model '${body.model}' is deprecated and will reach end-of-life on ${DEPRECATED_MODELS[body.model]}
-Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resources/model-deprecations for more information.`);
-    }
-    if (body.model in MODELS_TO_WARN_WITH_THINKING_ENABLED && body.thinking && body.thinking.type === "enabled") {
-      console.warn(`Using Claude with ${body.model} and 'thinking.type=enabled' is deprecated. Use 'thinking.type=adaptive' instead which results in better model performance in our testing: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking`);
-    }
-    let timeout = this._client._options.timeout;
-    if (!body.stream && timeout == null) {
-      const maxNonstreamingTokens = MODEL_NONSTREAMING_TOKENS[body.model] ?? undefined;
-      timeout = this._client.calculateNonstreamingTimeout(body.max_tokens, maxNonstreamingTokens);
-    }
-    const helperHeader = stainlessHelperHeader(body.tools, body.messages);
-    return this._client.post("/v1/messages?beta=true", {
-      body,
-      timeout: timeout ?? 600000,
-      ...options,
-      headers: buildHeaders([
-        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : undefined },
-        helperHeader,
-        options?.headers
-      ]),
-      stream: modifiedParams.stream ?? false
-    });
-  }
-  parse(params, options) {
-    options = {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...params.betas ?? [], "structured-outputs-2025-12-15"].toString() },
-        options?.headers
-      ])
-    };
-    return this.create(params, options).then((message) => parseBetaMessage(message, params, { logger: this._client.logger ?? console }));
-  }
-  stream(body, options) {
-    return BetaMessageStream.createMessage(this, body, options);
-  }
-  countTokens(params, options) {
-    const modifiedParams = transformOutputFormat(params);
-    const { betas, ...body } = modifiedParams;
-    return this._client.post("/v1/messages/count_tokens?beta=true", {
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "token-counting-2024-11-01"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  toolRunner(body, options) {
-    return new BetaToolRunner(this._client, body, options);
-  }
-}
-function transformOutputFormat(params) {
-  if (!params.output_format) {
-    return params;
-  }
-  if (params.output_config?.format) {
-    throw new AnthropicError("Both output_format and output_config.format were provided. " + "Please use only output_config.format (output_format is deprecated).");
-  }
-  const { output_format, ...rest } = params;
-  return {
-    ...rest,
-    output_config: {
-      ...params.output_config,
-      format: output_format
-    }
-  };
-}
-Messages.Batches = Batches;
-Messages.BetaToolRunner = BetaToolRunner;
-Messages.ToolError = ToolError;
-
-class Versions extends APIResource {
-  create(skillID, params = {}, options) {
-    const { betas, ...body } = params ?? {};
-    return this._client.post(path`/v1/skills/${skillID}/versions?beta=true`, multipartFormRequestOptions({
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    }, this._client));
-  }
-  retrieve(version3, params, options) {
-    const { skill_id, betas } = params;
-    return this._client.get(path`/v1/skills/${skill_id}/versions/${version3}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  list(skillID, params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList(path`/v1/skills/${skillID}/versions?beta=true`, PageCursor, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  delete(version3, params, options) {
-    const { skill_id, betas } = params;
-    return this._client.delete(path`/v1/skills/${skill_id}/versions/${version3}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    });
-  }
-}
-
-class Skills extends APIResource {
-  constructor() {
-    super(...arguments);
-    this.versions = new Versions(this._client);
-  }
-  create(params = {}, options) {
-    const { betas, ...body } = params ?? {};
-    return this._client.post("/v1/skills?beta=true", multipartFormRequestOptions({
-      body,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    }, this._client, false));
-  }
-  retrieve(skillID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path`/v1/skills/${skillID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/skills?beta=true", PageCursor, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    });
-  }
-  delete(skillID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.delete(path`/v1/skills/${skillID}?beta=true`, {
-      ...options,
-      headers: buildHeaders([
-        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
-        options?.headers
-      ])
-    });
-  }
-}
-Skills.Versions = Versions;
-
-class Beta extends APIResource {
-  constructor() {
-    super(...arguments);
-    this.models = new Models(this._client);
-    this.messages = new Messages(this._client);
-    this.files = new Files(this._client);
-    this.skills = new Skills(this._client);
-  }
-}
-Beta.Models = Models;
-Beta.Messages = Messages;
-Beta.Files = Files;
-Beta.Skills = Skills;
-
-class Completions extends APIResource {
-  create(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/complete", {
-      body,
-      timeout: this._client._options.timeout ?? 600000,
-      ...options,
-      headers: buildHeaders([
-        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : undefined },
-        options?.headers
-      ]),
-      stream: params.stream ?? false
-    });
-  }
-}
-function getOutputFormat2(params) {
-  return params?.output_config?.format;
-}
-function maybeParseMessage(message, params, opts) {
-  const outputFormat = getOutputFormat2(params);
-  if (!params || !("parse" in (outputFormat ?? {}))) {
-    return {
-      ...message,
-      content: message.content.map((block) => {
-        if (block.type === "text") {
-          const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
-            value: null,
-            enumerable: false
-          });
-          return parsedBlock;
-        }
-        return block;
-      }),
-      parsed_output: null
-    };
-  }
-  return parseMessage(message, params, opts);
-}
-function parseMessage(message, params, opts) {
-  let firstParsedOutput = null;
-  const content = message.content.map((block) => {
-    if (block.type === "text") {
-      const parsedOutput = parseOutputFormat(params, block.text);
-      if (firstParsedOutput === null) {
-        firstParsedOutput = parsedOutput;
-      }
-      const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
-        value: parsedOutput,
-        enumerable: false
-      });
-      return parsedBlock;
-    }
-    return block;
-  });
-  return {
-    ...message,
-    content,
-    parsed_output: firstParsedOutput
-  };
-}
-function parseOutputFormat(params, content) {
-  const outputFormat = getOutputFormat2(params);
-  if (outputFormat?.type !== "json_schema") {
-    return null;
-  }
-  try {
-    if ("parse" in outputFormat) {
-      return outputFormat.parse(content);
-    }
-    return JSON.parse(content);
-  } catch (error2) {
-    throw new AnthropicError(`Failed to parse structured output: ${error2}`);
-  }
-}
-var _MessageStream_instances;
-var _MessageStream_currentMessageSnapshot;
-var _MessageStream_params;
-var _MessageStream_connectedPromise;
-var _MessageStream_resolveConnectedPromise;
-var _MessageStream_rejectConnectedPromise;
-var _MessageStream_endPromise;
-var _MessageStream_resolveEndPromise;
-var _MessageStream_rejectEndPromise;
-var _MessageStream_listeners;
-var _MessageStream_ended;
-var _MessageStream_errored;
-var _MessageStream_aborted;
-var _MessageStream_catchingPromiseCreated;
-var _MessageStream_response;
-var _MessageStream_request_id;
-var _MessageStream_logger;
-var _MessageStream_getFinalMessage;
-var _MessageStream_getFinalText;
-var _MessageStream_handleError;
-var _MessageStream_beginRequest;
-var _MessageStream_addStreamEvent;
-var _MessageStream_endRequest;
-var _MessageStream_accumulateMessage;
-var JSON_BUF_PROPERTY2 = "__json_buf";
-function tracksToolInput2(content) {
-  return content.type === "tool_use" || content.type === "server_tool_use";
-}
-
-class MessageStream {
-  constructor(params, opts) {
-    _MessageStream_instances.add(this);
-    this.messages = [];
-    this.receivedMessages = [];
-    _MessageStream_currentMessageSnapshot.set(this, undefined);
-    _MessageStream_params.set(this, null);
-    this.controller = new AbortController;
-    _MessageStream_connectedPromise.set(this, undefined);
-    _MessageStream_resolveConnectedPromise.set(this, () => {});
-    _MessageStream_rejectConnectedPromise.set(this, () => {});
-    _MessageStream_endPromise.set(this, undefined);
-    _MessageStream_resolveEndPromise.set(this, () => {});
-    _MessageStream_rejectEndPromise.set(this, () => {});
-    _MessageStream_listeners.set(this, {});
-    _MessageStream_ended.set(this, false);
-    _MessageStream_errored.set(this, false);
-    _MessageStream_aborted.set(this, false);
-    _MessageStream_catchingPromiseCreated.set(this, false);
-    _MessageStream_response.set(this, undefined);
-    _MessageStream_request_id.set(this, undefined);
-    _MessageStream_logger.set(this, undefined);
-    _MessageStream_handleError.set(this, (error2) => {
-      __classPrivateFieldSet(this, _MessageStream_errored, true, "f");
-      if (isAbortError(error2)) {
-        error2 = new APIUserAbortError;
-      }
-      if (error2 instanceof APIUserAbortError) {
-        __classPrivateFieldSet(this, _MessageStream_aborted, true, "f");
-        return this._emit("abort", error2);
-      }
-      if (error2 instanceof AnthropicError) {
-        return this._emit("error", error2);
-      }
-      if (error2 instanceof Error) {
-        const anthropicError = new AnthropicError(error2.message);
-        anthropicError.cause = error2;
-        return this._emit("error", anthropicError);
-      }
-      return this._emit("error", new AnthropicError(String(error2)));
-    });
-    __classPrivateFieldSet(this, _MessageStream_connectedPromise, new Promise((resolve, reject) => {
-      __classPrivateFieldSet(this, _MessageStream_resolveConnectedPromise, resolve, "f");
-      __classPrivateFieldSet(this, _MessageStream_rejectConnectedPromise, reject, "f");
-    }), "f");
-    __classPrivateFieldSet(this, _MessageStream_endPromise, new Promise((resolve, reject) => {
-      __classPrivateFieldSet(this, _MessageStream_resolveEndPromise, resolve, "f");
-      __classPrivateFieldSet(this, _MessageStream_rejectEndPromise, reject, "f");
-    }), "f");
-    __classPrivateFieldGet(this, _MessageStream_connectedPromise, "f").catch(() => {});
-    __classPrivateFieldGet(this, _MessageStream_endPromise, "f").catch(() => {});
-    __classPrivateFieldSet(this, _MessageStream_params, params, "f");
-    __classPrivateFieldSet(this, _MessageStream_logger, opts?.logger ?? console, "f");
-  }
-  get response() {
-    return __classPrivateFieldGet(this, _MessageStream_response, "f");
-  }
-  get request_id() {
-    return __classPrivateFieldGet(this, _MessageStream_request_id, "f");
-  }
-  async withResponse() {
-    __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
-    const response = await __classPrivateFieldGet(this, _MessageStream_connectedPromise, "f");
-    if (!response) {
-      throw new Error("Could not resolve a `Response` object");
-    }
-    return {
-      data: this,
-      response,
-      request_id: response.headers.get("request-id")
-    };
-  }
-  static fromReadableStream(stream) {
-    const runner = new MessageStream(null);
-    runner._run(() => runner._fromReadableStream(stream));
-    return runner;
-  }
-  static createMessage(messages, params, options, { logger } = {}) {
-    const runner = new MessageStream(params, { logger });
-    for (const message of params.messages) {
-      runner._addMessageParam(message);
-    }
-    __classPrivateFieldSet(runner, _MessageStream_params, { ...params, stream: true }, "f");
-    runner._run(() => runner._createMessage(messages, { ...params, stream: true }, { ...options, headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" } }));
-    return runner;
-  }
-  _run(executor) {
-    executor().then(() => {
-      this._emitFinal();
-      this._emit("end");
-    }, __classPrivateFieldGet(this, _MessageStream_handleError, "f"));
-  }
-  _addMessageParam(message) {
-    this.messages.push(message);
-  }
-  _addMessage(message, emit = true) {
-    this.receivedMessages.push(message);
-    if (emit) {
-      this._emit("message", message);
-    }
-  }
-  async _createMessage(messages, params, options) {
-    const signal = options?.signal;
-    let abortHandler;
-    if (signal) {
-      if (signal.aborted)
-        this.controller.abort();
-      abortHandler = this.controller.abort.bind(this.controller);
-      signal.addEventListener("abort", abortHandler);
-    }
-    try {
-      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_beginRequest).call(this);
-      const { response, data: stream } = await messages.create({ ...params, stream: true }, { ...options, signal: this.controller.signal }).withResponse();
-      this._connected(response);
-      for await (const event of stream) {
-        __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_addStreamEvent).call(this, event);
-      }
-      if (stream.controller.signal?.aborted) {
-        throw new APIUserAbortError;
-      }
-      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
-    } finally {
-      if (signal && abortHandler) {
-        signal.removeEventListener("abort", abortHandler);
-      }
-    }
-  }
-  _connected(response) {
-    if (this.ended)
-      return;
-    __classPrivateFieldSet(this, _MessageStream_response, response, "f");
-    __classPrivateFieldSet(this, _MessageStream_request_id, response?.headers.get("request-id"), "f");
-    __classPrivateFieldGet(this, _MessageStream_resolveConnectedPromise, "f").call(this, response);
-    this._emit("connect");
-  }
-  get ended() {
-    return __classPrivateFieldGet(this, _MessageStream_ended, "f");
-  }
-  get errored() {
-    return __classPrivateFieldGet(this, _MessageStream_errored, "f");
-  }
-  get aborted() {
-    return __classPrivateFieldGet(this, _MessageStream_aborted, "f");
-  }
-  abort() {
-    this.controller.abort();
-  }
-  on(event, listener) {
-    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] = []);
-    listeners.push({ listener });
-    return this;
-  }
-  off(event, listener) {
-    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event];
-    if (!listeners)
-      return this;
-    const index = listeners.findIndex((l) => l.listener === listener);
-    if (index >= 0)
-      listeners.splice(index, 1);
-    return this;
-  }
-  once(event, listener) {
-    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] = []);
-    listeners.push({ listener, once: true });
-    return this;
-  }
-  emitted(event) {
-    return new Promise((resolve, reject) => {
-      __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
-      if (event !== "error")
-        this.once("error", reject);
-      this.once(event, resolve);
-    });
-  }
-  async done() {
-    __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
-    await __classPrivateFieldGet(this, _MessageStream_endPromise, "f");
-  }
-  get currentMessage() {
-    return __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
-  }
-  async finalMessage() {
-    await this.done();
-    return __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_getFinalMessage).call(this);
-  }
-  async finalText() {
-    await this.done();
-    return __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_getFinalText).call(this);
-  }
-  _emit(event, ...args) {
-    if (__classPrivateFieldGet(this, _MessageStream_ended, "f"))
-      return;
-    if (event === "end") {
-      __classPrivateFieldSet(this, _MessageStream_ended, true, "f");
-      __classPrivateFieldGet(this, _MessageStream_resolveEndPromise, "f").call(this);
-    }
-    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event];
-    if (listeners) {
-      __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
-      listeners.forEach(({ listener }) => listener(...args));
-    }
-    if (event === "abort") {
-      const error2 = args[0];
-      if (!__classPrivateFieldGet(this, _MessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
-        Promise.reject(error2);
-      }
-      __classPrivateFieldGet(this, _MessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet(this, _MessageStream_rejectEndPromise, "f").call(this, error2);
-      this._emit("end");
-      return;
-    }
-    if (event === "error") {
-      const error2 = args[0];
-      if (!__classPrivateFieldGet(this, _MessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
-        Promise.reject(error2);
-      }
-      __classPrivateFieldGet(this, _MessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet(this, _MessageStream_rejectEndPromise, "f").call(this, error2);
-      this._emit("end");
-    }
-  }
-  _emitFinal() {
-    const finalMessage = this.receivedMessages.at(-1);
-    if (finalMessage) {
-      this._emit("finalMessage", __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_getFinalMessage).call(this));
-    }
-  }
-  async _fromReadableStream(readableStream, options) {
-    const signal = options?.signal;
-    let abortHandler;
-    if (signal) {
-      if (signal.aborted)
-        this.controller.abort();
-      abortHandler = this.controller.abort.bind(this.controller);
-      signal.addEventListener("abort", abortHandler);
-    }
-    try {
-      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_beginRequest).call(this);
-      this._connected(null);
-      const stream = Stream.fromReadableStream(readableStream, this.controller);
-      for await (const event of stream) {
-        __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_addStreamEvent).call(this, event);
-      }
-      if (stream.controller.signal?.aborted) {
-        throw new APIUserAbortError;
-      }
-      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
-    } finally {
-      if (signal && abortHandler) {
-        signal.removeEventListener("abort", abortHandler);
-      }
-    }
-  }
-  [(_MessageStream_currentMessageSnapshot = new WeakMap, _MessageStream_params = new WeakMap, _MessageStream_connectedPromise = new WeakMap, _MessageStream_resolveConnectedPromise = new WeakMap, _MessageStream_rejectConnectedPromise = new WeakMap, _MessageStream_endPromise = new WeakMap, _MessageStream_resolveEndPromise = new WeakMap, _MessageStream_rejectEndPromise = new WeakMap, _MessageStream_listeners = new WeakMap, _MessageStream_ended = new WeakMap, _MessageStream_errored = new WeakMap, _MessageStream_aborted = new WeakMap, _MessageStream_catchingPromiseCreated = new WeakMap, _MessageStream_response = new WeakMap, _MessageStream_request_id = new WeakMap, _MessageStream_logger = new WeakMap, _MessageStream_handleError = new WeakMap, _MessageStream_instances = new WeakSet, _MessageStream_getFinalMessage = function _MessageStream_getFinalMessage2() {
-    if (this.receivedMessages.length === 0) {
-      throw new AnthropicError("stream ended without producing a Message with role=assistant");
-    }
-    return this.receivedMessages.at(-1);
-  }, _MessageStream_getFinalText = function _MessageStream_getFinalText2() {
-    if (this.receivedMessages.length === 0) {
-      throw new AnthropicError("stream ended without producing a Message with role=assistant");
-    }
-    const textBlocks = this.receivedMessages.at(-1).content.filter((block) => block.type === "text").map((block) => block.text);
-    if (textBlocks.length === 0) {
-      throw new AnthropicError("stream ended without producing a content block with type=text");
-    }
-    return textBlocks.join(" ");
-  }, _MessageStream_beginRequest = function _MessageStream_beginRequest2() {
-    if (this.ended)
-      return;
-    __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, undefined, "f");
-  }, _MessageStream_addStreamEvent = function _MessageStream_addStreamEvent2(event) {
-    if (this.ended)
-      return;
-    const messageSnapshot = __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_accumulateMessage).call(this, event);
-    this._emit("streamEvent", event, messageSnapshot);
-    switch (event.type) {
-      case "content_block_delta": {
-        const content = messageSnapshot.content.at(-1);
-        switch (event.delta.type) {
-          case "text_delta": {
-            if (content.type === "text") {
-              this._emit("text", event.delta.text, content.text || "");
-            }
-            break;
-          }
-          case "citations_delta": {
-            if (content.type === "text") {
-              this._emit("citation", event.delta.citation, content.citations ?? []);
-            }
-            break;
-          }
-          case "input_json_delta": {
-            if (tracksToolInput2(content) && content.input) {
-              this._emit("inputJson", event.delta.partial_json, content.input);
-            }
-            break;
-          }
-          case "thinking_delta": {
-            if (content.type === "thinking") {
-              this._emit("thinking", event.delta.thinking, content.thinking);
-            }
-            break;
-          }
-          case "signature_delta": {
-            if (content.type === "thinking") {
-              this._emit("signature", content.signature);
-            }
-            break;
-          }
-          default:
-            checkNever2(event.delta);
-        }
-        break;
-      }
-      case "message_stop": {
-        this._addMessageParam(messageSnapshot);
-        this._addMessage(maybeParseMessage(messageSnapshot, __classPrivateFieldGet(this, _MessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _MessageStream_logger, "f") }), true);
-        break;
-      }
-      case "content_block_stop": {
-        this._emit("contentBlock", messageSnapshot.content.at(-1));
-        break;
-      }
-      case "message_start": {
-        __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, messageSnapshot, "f");
-        break;
-      }
-      case "content_block_start":
-      case "message_delta":
-        break;
-    }
-  }, _MessageStream_endRequest = function _MessageStream_endRequest2() {
-    if (this.ended) {
-      throw new AnthropicError(`stream has ended, this shouldn't happen`);
-    }
-    const snapshot = __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
-    if (!snapshot) {
-      throw new AnthropicError(`request ended without sending any chunks`);
-    }
-    __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, undefined, "f");
-    return maybeParseMessage(snapshot, __classPrivateFieldGet(this, _MessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _MessageStream_logger, "f") });
-  }, _MessageStream_accumulateMessage = function _MessageStream_accumulateMessage2(event) {
-    let snapshot = __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
-    if (event.type === "message_start") {
-      if (snapshot) {
-        throw new AnthropicError(`Unexpected event order, got ${event.type} before receiving "message_stop"`);
-      }
-      return event.message;
-    }
-    if (!snapshot) {
-      throw new AnthropicError(`Unexpected event order, got ${event.type} before "message_start"`);
-    }
-    switch (event.type) {
-      case "message_stop":
-        return snapshot;
-      case "message_delta":
-        snapshot.stop_reason = event.delta.stop_reason;
-        snapshot.stop_sequence = event.delta.stop_sequence;
-        snapshot.usage.output_tokens = event.usage.output_tokens;
-        if (event.usage.input_tokens != null) {
-          snapshot.usage.input_tokens = event.usage.input_tokens;
-        }
-        if (event.usage.cache_creation_input_tokens != null) {
-          snapshot.usage.cache_creation_input_tokens = event.usage.cache_creation_input_tokens;
-        }
-        if (event.usage.cache_read_input_tokens != null) {
-          snapshot.usage.cache_read_input_tokens = event.usage.cache_read_input_tokens;
-        }
-        if (event.usage.server_tool_use != null) {
-          snapshot.usage.server_tool_use = event.usage.server_tool_use;
-        }
-        return snapshot;
-      case "content_block_start":
-        snapshot.content.push({ ...event.content_block });
-        return snapshot;
-      case "content_block_delta": {
-        const snapshotContent = snapshot.content.at(event.index);
-        switch (event.delta.type) {
-          case "text_delta": {
-            if (snapshotContent?.type === "text") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                text: (snapshotContent.text || "") + event.delta.text
-              };
-            }
-            break;
-          }
-          case "citations_delta": {
-            if (snapshotContent?.type === "text") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                citations: [...snapshotContent.citations ?? [], event.delta.citation]
-              };
-            }
-            break;
-          }
-          case "input_json_delta": {
-            if (snapshotContent && tracksToolInput2(snapshotContent)) {
-              let jsonBuf = snapshotContent[JSON_BUF_PROPERTY2] || "";
-              jsonBuf += event.delta.partial_json;
-              const newContent = { ...snapshotContent };
-              Object.defineProperty(newContent, JSON_BUF_PROPERTY2, {
-                value: jsonBuf,
-                enumerable: false,
-                writable: true
-              });
-              if (jsonBuf) {
-                newContent.input = partialParse(jsonBuf);
-              }
-              snapshot.content[event.index] = newContent;
-            }
-            break;
-          }
-          case "thinking_delta": {
-            if (snapshotContent?.type === "thinking") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                thinking: snapshotContent.thinking + event.delta.thinking
-              };
-            }
-            break;
-          }
-          case "signature_delta": {
-            if (snapshotContent?.type === "thinking") {
-              snapshot.content[event.index] = {
-                ...snapshotContent,
-                signature: event.delta.signature
-              };
-            }
-            break;
-          }
-          default:
-            checkNever2(event.delta);
-        }
-        return snapshot;
-      }
-      case "content_block_stop":
-        return snapshot;
-    }
-  }, Symbol.asyncIterator)]() {
-    const pushQueue = [];
-    const readQueue = [];
-    let done = false;
-    this.on("streamEvent", (event) => {
-      const reader = readQueue.shift();
-      if (reader) {
-        reader.resolve(event);
-      } else {
-        pushQueue.push(event);
-      }
-    });
-    this.on("end", () => {
-      done = true;
-      for (const reader of readQueue) {
-        reader.resolve(undefined);
-      }
-      readQueue.length = 0;
-    });
-    this.on("abort", (err) => {
-      done = true;
-      for (const reader of readQueue) {
-        reader.reject(err);
-      }
-      readQueue.length = 0;
-    });
-    this.on("error", (err) => {
-      done = true;
-      for (const reader of readQueue) {
-        reader.reject(err);
-      }
-      readQueue.length = 0;
-    });
-    return {
-      next: async () => {
-        if (!pushQueue.length) {
-          if (done) {
-            return { value: undefined, done: true };
-          }
-          return new Promise((resolve, reject) => readQueue.push({ resolve, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: undefined, done: true });
-        }
-        const chunk = pushQueue.shift();
-        return { value: chunk, done: false };
-      },
-      return: async () => {
-        this.abort();
-        return { value: undefined, done: true };
-      }
-    };
-  }
-  toReadableStream() {
-    const stream = new Stream(this[Symbol.asyncIterator].bind(this), this.controller);
-    return stream.toReadableStream();
-  }
-}
-function checkNever2(x) {}
-
-class Batches2 extends APIResource {
-  create(body, options) {
-    return this._client.post("/v1/messages/batches", { body, ...options });
-  }
-  retrieve(messageBatchID, options) {
-    return this._client.get(path`/v1/messages/batches/${messageBatchID}`, options);
-  }
-  list(query = {}, options) {
-    return this._client.getAPIList("/v1/messages/batches", Page, { query, ...options });
-  }
-  delete(messageBatchID, options) {
-    return this._client.delete(path`/v1/messages/batches/${messageBatchID}`, options);
-  }
-  cancel(messageBatchID, options) {
-    return this._client.post(path`/v1/messages/batches/${messageBatchID}/cancel`, options);
-  }
-  async results(messageBatchID, options) {
-    const batch = await this.retrieve(messageBatchID);
-    if (!batch.results_url) {
-      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
-    }
-    return this._client.get(batch.results_url, {
-      ...options,
-      headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
-      stream: true,
-      __binaryResponse: true
-    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
-  }
-}
-
-class Messages2 extends APIResource {
-  constructor() {
-    super(...arguments);
-    this.batches = new Batches2(this._client);
-  }
-  create(body, options) {
-    if (body.model in DEPRECATED_MODELS2) {
-      console.warn(`The model '${body.model}' is deprecated and will reach end-of-life on ${DEPRECATED_MODELS2[body.model]}
-Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resources/model-deprecations for more information.`);
-    }
-    if (body.model in MODELS_TO_WARN_WITH_THINKING_ENABLED2 && body.thinking && body.thinking.type === "enabled") {
-      console.warn(`Using Claude with ${body.model} and 'thinking.type=enabled' is deprecated. Use 'thinking.type=adaptive' instead which results in better model performance in our testing: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking`);
-    }
-    let timeout = this._client._options.timeout;
-    if (!body.stream && timeout == null) {
-      const maxNonstreamingTokens = MODEL_NONSTREAMING_TOKENS[body.model] ?? undefined;
-      timeout = this._client.calculateNonstreamingTimeout(body.max_tokens, maxNonstreamingTokens);
-    }
-    const helperHeader = stainlessHelperHeader(body.tools, body.messages);
-    return this._client.post("/v1/messages", {
-      body,
-      timeout: timeout ?? 600000,
-      ...options,
-      headers: buildHeaders([helperHeader, options?.headers]),
-      stream: body.stream ?? false
-    });
-  }
-  parse(params, options) {
-    return this.create(params, options).then((message) => parseMessage(message, params, { logger: this._client.logger ?? console }));
-  }
-  stream(body, options) {
-    return MessageStream.createMessage(this, body, options, { logger: this._client.logger ?? console });
-  }
-  countTokens(body, options) {
-    return this._client.post("/v1/messages/count_tokens", { body, ...options });
-  }
-}
-var DEPRECATED_MODELS2 = {
-  "claude-1.3": "November 6th, 2024",
-  "claude-1.3-100k": "November 6th, 2024",
-  "claude-instant-1.1": "November 6th, 2024",
-  "claude-instant-1.1-100k": "November 6th, 2024",
-  "claude-instant-1.2": "November 6th, 2024",
-  "claude-3-sonnet-20240229": "July 21st, 2025",
-  "claude-3-opus-20240229": "January 5th, 2026",
-  "claude-2.1": "July 21st, 2025",
-  "claude-2.0": "July 21st, 2025",
-  "claude-3-7-sonnet-latest": "February 19th, 2026",
-  "claude-3-7-sonnet-20250219": "February 19th, 2026",
-  "claude-3-5-haiku-latest": "February 19th, 2026",
-  "claude-3-5-haiku-20241022": "February 19th, 2026"
-};
-var MODELS_TO_WARN_WITH_THINKING_ENABLED2 = ["claude-opus-4-6"];
-Messages2.Batches = Batches2;
-
-class Models2 extends APIResource {
-  retrieve(modelID, params = {}, options) {
-    const { betas } = params ?? {};
-    return this._client.get(path`/v1/models/${modelID}`, {
-      ...options,
-      headers: buildHeaders([
-        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : undefined },
-        options?.headers
-      ])
-    });
-  }
-  list(params = {}, options) {
-    const { betas, ...query } = params ?? {};
-    return this._client.getAPIList("/v1/models", Page, {
-      query,
-      ...options,
-      headers: buildHeaders([
-        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : undefined },
-        options?.headers
-      ])
-    });
-  }
-}
-var readEnv = (env) => {
-  if (typeof globalThis.process !== "undefined") {
-    return globalThis.process.env?.[env]?.trim() ?? undefined;
-  }
-  if (typeof globalThis.Deno !== "undefined") {
-    return globalThis.Deno.env?.get?.(env)?.trim();
-  }
-  return;
-};
-var _BaseAnthropic_instances;
-var _a;
-var _BaseAnthropic_encoder;
-var _BaseAnthropic_baseURLOverridden;
-var HUMAN_PROMPT = "\\n\\nHuman:";
-var AI_PROMPT = "\\n\\nAssistant:";
-
-class BaseAnthropic {
-  constructor({ baseURL = readEnv("ANTHROPIC_BASE_URL"), apiKey = readEnv("ANTHROPIC_API_KEY") ?? null, authToken = readEnv("ANTHROPIC_AUTH_TOKEN") ?? null, ...opts } = {}) {
-    _BaseAnthropic_instances.add(this);
-    _BaseAnthropic_encoder.set(this, undefined);
-    const options = {
-      apiKey,
-      authToken,
-      ...opts,
-      baseURL: baseURL || `https://api.anthropic.com`
-    };
-    if (!options.dangerouslyAllowBrowser && isRunningInBrowser()) {
-      throw new AnthropicError(`It looks like you're running in a browser-like environment.
-
-This is disabled by default, as it risks exposing your secret API credentials to attackers.
-If you understand the risks and have appropriate mitigations in place,
-you can set the \`dangerouslyAllowBrowser\` option to \`true\`, e.g.,
-
-new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-`);
-    }
-    this.baseURL = options.baseURL;
-    this.timeout = options.timeout ?? _a.DEFAULT_TIMEOUT;
-    this.logger = options.logger ?? console;
-    const defaultLogLevel = "warn";
-    this.logLevel = defaultLogLevel;
-    this.logLevel = parseLogLevel(options.logLevel, "ClientOptions.logLevel", this) ?? parseLogLevel(readEnv("ANTHROPIC_LOG"), "process.env['ANTHROPIC_LOG']", this) ?? defaultLogLevel;
-    this.fetchOptions = options.fetchOptions;
-    this.maxRetries = options.maxRetries ?? 2;
-    this.fetch = options.fetch ?? getDefaultFetch();
-    __classPrivateFieldSet(this, _BaseAnthropic_encoder, FallbackEncoder, "f");
-    this._options = options;
-    this.apiKey = typeof apiKey === "string" ? apiKey : null;
-    this.authToken = authToken;
-  }
-  withOptions(options) {
-    const client = new this.constructor({
-      ...this._options,
-      baseURL: this.baseURL,
-      maxRetries: this.maxRetries,
-      timeout: this.timeout,
-      logger: this.logger,
-      logLevel: this.logLevel,
-      fetch: this.fetch,
-      fetchOptions: this.fetchOptions,
-      apiKey: this.apiKey,
-      authToken: this.authToken,
-      ...options
-    });
-    return client;
-  }
-  defaultQuery() {
-    return this._options.defaultQuery;
-  }
-  validateHeaders({ values, nulls }) {
-    if (values.get("x-api-key") || values.get("authorization")) {
-      return;
-    }
-    if (this.apiKey && values.get("x-api-key")) {
-      return;
-    }
-    if (nulls.has("x-api-key")) {
-      return;
-    }
-    if (this.authToken && values.get("authorization")) {
-      return;
-    }
-    if (nulls.has("authorization")) {
-      return;
-    }
-    throw new Error('Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted');
-  }
-  async authHeaders(opts) {
-    return buildHeaders([await this.apiKeyAuth(opts), await this.bearerAuth(opts)]);
-  }
-  async apiKeyAuth(opts) {
-    if (this.apiKey == null) {
-      return;
-    }
-    return buildHeaders([{ "X-Api-Key": this.apiKey }]);
-  }
-  async bearerAuth(opts) {
-    if (this.authToken == null) {
-      return;
-    }
-    return buildHeaders([{ Authorization: `Bearer ${this.authToken}` }]);
-  }
-  stringifyQuery(query) {
-    return Object.entries(query).filter(([_, value2]) => typeof value2 !== "undefined").map(([key, value2]) => {
-      if (typeof value2 === "string" || typeof value2 === "number" || typeof value2 === "boolean") {
-        return `${encodeURIComponent(key)}=${encodeURIComponent(value2)}`;
-      }
-      if (value2 === null) {
-        return `${encodeURIComponent(key)}=`;
-      }
-      throw new AnthropicError(`Cannot stringify type ${typeof value2}; Expected string, number, boolean, or null. If you need to pass nested query parameters, you can manually encode them, e.g. { query: { 'foo[key1]': value1, 'foo[key2]': value2 } }, and please open a GitHub issue requesting better support for your use case.`);
-    }).join("&");
-  }
-  getUserAgent() {
-    return `${this.constructor.name}/JS ${VERSION}`;
-  }
-  defaultIdempotencyKey() {
-    return `stainless-node-retry-${uuid4()}`;
-  }
-  makeStatusError(status, error2, message, headers) {
-    return APIError.generate(status, error2, message, headers);
-  }
-  buildURL(path2, query, defaultBaseURL) {
-    const baseURL = !__classPrivateFieldGet(this, _BaseAnthropic_instances, "m", _BaseAnthropic_baseURLOverridden).call(this) && defaultBaseURL || this.baseURL;
-    const url = isAbsoluteURL(path2) ? new URL(path2) : new URL(baseURL + (baseURL.endsWith("/") && path2.startsWith("/") ? path2.slice(1) : path2));
-    const defaultQuery = this.defaultQuery();
-    if (!isEmptyObj(defaultQuery)) {
-      query = { ...defaultQuery, ...query };
-    }
-    if (typeof query === "object" && query && !Array.isArray(query)) {
-      url.search = this.stringifyQuery(query);
-    }
-    return url.toString();
-  }
-  _calculateNonstreamingTimeout(maxTokens) {
-    const defaultTimeout = 10 * 60;
-    const expectedTimeout = 60 * 60 * maxTokens / 128000;
-    if (expectedTimeout > defaultTimeout) {
-      throw new AnthropicError("Streaming is required for operations that may take longer than 10 minutes. " + "See https://github.com/anthropics/anthropic-sdk-typescript#streaming-responses for more details");
-    }
-    return defaultTimeout * 1000;
-  }
-  async prepareOptions(options) {}
-  async prepareRequest(request, { url, options }) {}
-  get(path2, opts) {
-    return this.methodRequest("get", path2, opts);
-  }
-  post(path2, opts) {
-    return this.methodRequest("post", path2, opts);
-  }
-  patch(path2, opts) {
-    return this.methodRequest("patch", path2, opts);
-  }
-  put(path2, opts) {
-    return this.methodRequest("put", path2, opts);
-  }
-  delete(path2, opts) {
-    return this.methodRequest("delete", path2, opts);
-  }
-  methodRequest(method, path2, opts) {
-    return this.request(Promise.resolve(opts).then((opts2) => {
-      return { method, path: path2, ...opts2 };
-    }));
-  }
-  request(options, remainingRetries = null) {
-    return new APIPromise(this, this.makeRequest(options, remainingRetries, undefined));
-  }
-  async makeRequest(optionsInput, retriesRemaining, retryOfRequestLogID) {
-    const options = await optionsInput;
-    const maxRetries = options.maxRetries ?? this.maxRetries;
-    if (retriesRemaining == null) {
-      retriesRemaining = maxRetries;
-    }
-    await this.prepareOptions(options);
-    const { req, url, timeout } = await this.buildRequest(options, {
-      retryCount: maxRetries - retriesRemaining
-    });
-    await this.prepareRequest(req, { url, options });
-    const requestLogID = "log_" + (Math.random() * (1 << 24) | 0).toString(16).padStart(6, "0");
-    const retryLogStr = retryOfRequestLogID === undefined ? "" : `, retryOf: ${retryOfRequestLogID}`;
-    const startTime = Date.now();
-    loggerFor(this).debug(`[${requestLogID}] sending request`, formatRequestDetails({
-      retryOfRequestLogID,
-      method: options.method,
-      url,
-      options,
-      headers: req.headers
-    }));
-    if (options.signal?.aborted) {
-      throw new APIUserAbortError;
-    }
-    const controller = new AbortController;
-    const response = await this.fetchWithTimeout(url, req, timeout, controller).catch(castToError);
-    const headersTime = Date.now();
-    if (response instanceof globalThis.Error) {
-      const retryMessage = `retrying, ${retriesRemaining} attempts remaining`;
-      if (options.signal?.aborted) {
-        throw new APIUserAbortError;
-      }
-      const isTimeout = isAbortError(response) || /timed? ?out/i.test(String(response) + ("cause" in response ? String(response.cause) : ""));
-      if (retriesRemaining) {
-        loggerFor(this).info(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} - ${retryMessage}`);
-        loggerFor(this).debug(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} (${retryMessage})`, formatRequestDetails({
-          retryOfRequestLogID,
-          url,
-          durationMs: headersTime - startTime,
-          message: response.message
-        }));
-        return this.retryRequest(options, retriesRemaining, retryOfRequestLogID ?? requestLogID);
-      }
-      loggerFor(this).info(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} - error; no more retries left`);
-      loggerFor(this).debug(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} (error; no more retries left)`, formatRequestDetails({
-        retryOfRequestLogID,
-        url,
-        durationMs: headersTime - startTime,
-        message: response.message
-      }));
-      if (isTimeout) {
-        throw new APIConnectionTimeoutError;
-      }
-      throw new APIConnectionError({ cause: response });
-    }
-    const specialHeaders = [...response.headers.entries()].filter(([name]) => name === "request-id").map(([name, value2]) => ", " + name + ": " + JSON.stringify(value2)).join("");
-    const responseInfo = `[${requestLogID}${retryLogStr}${specialHeaders}] ${req.method} ${url} ${response.ok ? "succeeded" : "failed"} with status ${response.status} in ${headersTime - startTime}ms`;
-    if (!response.ok) {
-      const shouldRetry = await this.shouldRetry(response);
-      if (retriesRemaining && shouldRetry) {
-        const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
-        await CancelReadableStream(response.body);
-        loggerFor(this).info(`${responseInfo} - ${retryMessage2}`);
-        loggerFor(this).debug(`[${requestLogID}] response error (${retryMessage2})`, formatRequestDetails({
-          retryOfRequestLogID,
-          url: response.url,
-          status: response.status,
-          headers: response.headers,
-          durationMs: headersTime - startTime
-        }));
-        return this.retryRequest(options, retriesRemaining, retryOfRequestLogID ?? requestLogID, response.headers);
-      }
-      const retryMessage = shouldRetry ? `error; no more retries left` : `error; not retryable`;
-      loggerFor(this).info(`${responseInfo} - ${retryMessage}`);
-      const errText = await response.text().catch((err2) => castToError(err2).message);
-      const errJSON = safeJSON(errText);
-      const errMessage = errJSON ? undefined : errText;
-      loggerFor(this).debug(`[${requestLogID}] response error (${retryMessage})`, formatRequestDetails({
-        retryOfRequestLogID,
-        url: response.url,
-        status: response.status,
-        headers: response.headers,
-        message: errMessage,
-        durationMs: Date.now() - startTime
-      }));
-      const err = this.makeStatusError(response.status, errJSON, errMessage, response.headers);
-      throw err;
-    }
-    loggerFor(this).info(responseInfo);
-    loggerFor(this).debug(`[${requestLogID}] response start`, formatRequestDetails({
-      retryOfRequestLogID,
-      url: response.url,
-      status: response.status,
-      headers: response.headers,
-      durationMs: headersTime - startTime
-    }));
-    return { response, options, controller, requestLogID, retryOfRequestLogID, startTime };
-  }
-  getAPIList(path2, Page2, opts) {
-    return this.requestAPIList(Page2, opts && "then" in opts ? opts.then((opts2) => ({ method: "get", path: path2, ...opts2 })) : { method: "get", path: path2, ...opts });
-  }
-  requestAPIList(Page2, options) {
-    const request = this.makeRequest(options, null, undefined);
-    return new PagePromise(this, request, Page2);
-  }
-  async fetchWithTimeout(url, init, ms, controller) {
-    const { signal, method, ...options } = init || {};
-    const abort = this._makeAbort(controller);
-    if (signal)
-      signal.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(abort, ms);
-    const isReadableBody = globalThis.ReadableStream && options.body instanceof globalThis.ReadableStream || typeof options.body === "object" && options.body !== null && Symbol.asyncIterator in options.body;
-    const fetchOptions = {
-      signal: controller.signal,
-      ...isReadableBody ? { duplex: "half" } : {},
-      method: "GET",
-      ...options
-    };
-    if (method) {
-      fetchOptions.method = method.toUpperCase();
-    }
-    try {
-      return await this.fetch.call(undefined, url, fetchOptions);
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  async shouldRetry(response) {
-    const shouldRetryHeader = response.headers.get("x-should-retry");
-    if (shouldRetryHeader === "true")
-      return true;
-    if (shouldRetryHeader === "false")
-      return false;
-    if (response.status === 408)
-      return true;
-    if (response.status === 409)
-      return true;
-    if (response.status === 429)
-      return true;
-    if (response.status >= 500)
-      return true;
-    return false;
-  }
-  async retryRequest(options, retriesRemaining, requestLogID, responseHeaders) {
-    let timeoutMillis;
-    const retryAfterMillisHeader = responseHeaders?.get("retry-after-ms");
-    if (retryAfterMillisHeader) {
-      const timeoutMs = parseFloat(retryAfterMillisHeader);
-      if (!Number.isNaN(timeoutMs)) {
-        timeoutMillis = timeoutMs;
-      }
-    }
-    const retryAfterHeader = responseHeaders?.get("retry-after");
-    if (retryAfterHeader && !timeoutMillis) {
-      const timeoutSeconds = parseFloat(retryAfterHeader);
-      if (!Number.isNaN(timeoutSeconds)) {
-        timeoutMillis = timeoutSeconds * 1000;
-      } else {
-        timeoutMillis = Date.parse(retryAfterHeader) - Date.now();
-      }
-    }
-    if (!(timeoutMillis && 0 <= timeoutMillis && timeoutMillis < 60 * 1000)) {
-      const maxRetries = options.maxRetries ?? this.maxRetries;
-      timeoutMillis = this.calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries);
-    }
-    await sleep(timeoutMillis);
-    return this.makeRequest(options, retriesRemaining - 1, requestLogID);
-  }
-  calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries) {
-    const initialRetryDelay = 0.5;
-    const maxRetryDelay = 8;
-    const numRetries = maxRetries - retriesRemaining;
-    const sleepSeconds = Math.min(initialRetryDelay * Math.pow(2, numRetries), maxRetryDelay);
-    const jitter = 1 - Math.random() * 0.25;
-    return sleepSeconds * jitter * 1000;
-  }
-  calculateNonstreamingTimeout(maxTokens, maxNonstreamingTokens) {
-    const maxTime = 60 * 60 * 1000;
-    const defaultTime = 60 * 10 * 1000;
-    const expectedTime = maxTime * maxTokens / 128000;
-    if (expectedTime > defaultTime || maxNonstreamingTokens != null && maxTokens > maxNonstreamingTokens) {
-      throw new AnthropicError("Streaming is required for operations that may take longer than 10 minutes. See https://github.com/anthropics/anthropic-sdk-typescript#long-requests for more details");
-    }
-    return defaultTime;
-  }
-  async buildRequest(inputOptions, { retryCount = 0 } = {}) {
-    const options = { ...inputOptions };
-    const { method, path: path2, query, defaultBaseURL } = options;
-    const url = this.buildURL(path2, query, defaultBaseURL);
-    if ("timeout" in options)
-      validatePositiveInteger("timeout", options.timeout);
-    options.timeout = options.timeout ?? this.timeout;
-    const { bodyHeaders, body } = this.buildBody({ options });
-    const reqHeaders = await this.buildHeaders({ options: inputOptions, method, bodyHeaders, retryCount });
-    const req = {
-      method,
-      headers: reqHeaders,
-      ...options.signal && { signal: options.signal },
-      ...globalThis.ReadableStream && body instanceof globalThis.ReadableStream && { duplex: "half" },
-      ...body && { body },
-      ...this.fetchOptions ?? {},
-      ...options.fetchOptions ?? {}
-    };
-    return { req, url, timeout: options.timeout };
-  }
-  async buildHeaders({ options, method, bodyHeaders, retryCount }) {
-    let idempotencyHeaders = {};
-    if (this.idempotencyHeader && method !== "get") {
-      if (!options.idempotencyKey)
-        options.idempotencyKey = this.defaultIdempotencyKey();
-      idempotencyHeaders[this.idempotencyHeader] = options.idempotencyKey;
-    }
-    const headers = buildHeaders([
-      idempotencyHeaders,
-      {
-        Accept: "application/json",
-        "User-Agent": this.getUserAgent(),
-        "X-Stainless-Retry-Count": String(retryCount),
-        ...options.timeout ? { "X-Stainless-Timeout": String(Math.trunc(options.timeout / 1000)) } : {},
-        ...getPlatformHeaders(),
-        ...this._options.dangerouslyAllowBrowser ? { "anthropic-dangerous-direct-browser-access": "true" } : undefined,
-        "anthropic-version": "2023-06-01"
-      },
-      await this.authHeaders(options),
-      this._options.defaultHeaders,
-      bodyHeaders,
-      options.headers
-    ]);
-    this.validateHeaders(headers);
-    return headers.values;
-  }
-  _makeAbort(controller) {
-    return () => controller.abort();
-  }
-  buildBody({ options: { body, headers: rawHeaders } }) {
-    if (!body) {
-      return { bodyHeaders: undefined, body: undefined };
-    }
-    const headers = buildHeaders([rawHeaders]);
-    if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer || body instanceof DataView || typeof body === "string" && headers.values.has("content-type") || globalThis.Blob && body instanceof globalThis.Blob || body instanceof FormData || body instanceof URLSearchParams || globalThis.ReadableStream && body instanceof globalThis.ReadableStream) {
-      return { bodyHeaders: undefined, body };
-    } else if (typeof body === "object" && ((Symbol.asyncIterator in body) || (Symbol.iterator in body) && ("next" in body) && typeof body.next === "function")) {
-      return { bodyHeaders: undefined, body: ReadableStreamFrom(body) };
-    } else if (typeof body === "object" && headers.values.get("content-type") === "application/x-www-form-urlencoded") {
-      return {
-        bodyHeaders: { "content-type": "application/x-www-form-urlencoded" },
-        body: this.stringifyQuery(body)
-      };
-    } else {
-      return __classPrivateFieldGet(this, _BaseAnthropic_encoder, "f").call(this, { body, headers });
-    }
-  }
-}
-_a = BaseAnthropic, _BaseAnthropic_encoder = new WeakMap, _BaseAnthropic_instances = new WeakSet, _BaseAnthropic_baseURLOverridden = function _BaseAnthropic_baseURLOverridden2() {
-  return this.baseURL !== "https://api.anthropic.com";
-};
-BaseAnthropic.Anthropic = _a;
-BaseAnthropic.HUMAN_PROMPT = HUMAN_PROMPT;
-BaseAnthropic.AI_PROMPT = AI_PROMPT;
-BaseAnthropic.DEFAULT_TIMEOUT = 600000;
-BaseAnthropic.AnthropicError = AnthropicError;
-BaseAnthropic.APIError = APIError;
-BaseAnthropic.APIConnectionError = APIConnectionError;
-BaseAnthropic.APIConnectionTimeoutError = APIConnectionTimeoutError;
-BaseAnthropic.APIUserAbortError = APIUserAbortError;
-BaseAnthropic.NotFoundError = NotFoundError;
-BaseAnthropic.ConflictError = ConflictError;
-BaseAnthropic.RateLimitError = RateLimitError;
-BaseAnthropic.BadRequestError = BadRequestError;
-BaseAnthropic.AuthenticationError = AuthenticationError;
-BaseAnthropic.InternalServerError = InternalServerError;
-BaseAnthropic.PermissionDeniedError = PermissionDeniedError;
-BaseAnthropic.UnprocessableEntityError = UnprocessableEntityError;
-BaseAnthropic.toFile = toFile;
-
-class Anthropic extends BaseAnthropic {
-  constructor() {
-    super(...arguments);
-    this.completions = new Completions(this);
-    this.messages = new Messages2(this);
-    this.models = new Models2(this);
-    this.beta = new Beta(this);
-  }
-}
-Anthropic.Completions = Completions;
-Anthropic.Messages = Messages2;
-Anthropic.Models = Models2;
-Anthropic.Beta = Beta;
-var ANTHROPIC = "ANTHROPIC";
-var pastQuestions = [];
-async function getMarketQuestion(runtime2) {
-  const anthropic_key = runtime2.getSecret({ id: ANTHROPIC }).result();
-  const claude = new Anthropic({ apiKey: anthropic_key.value, fetch });
-  const history = pastQuestions.slice(-20).map((q) => `- ${q}`).join(`
-`) || "None yet.";
-  runtime2.log("searching for new question for new market");
-  const res = await claude.messages.create({
-    model: "claude-opus-4-5",
-    max_tokens: 100,
-    messages: [{
-      role: "user",
-      content: `Generate a unique binary (Yes/No) crypto prediction market question that can resolve within a few hours.
-      It must reference a specific token, price level, or on-chain event happening RIGHT NOW.
-      Do NOT repeat anything from this list:
-${history}
-      Reply with ONLY the question. No explanation.`
-    }]
-  });
-  for (const block of res.content) {
-    if (block.type == "text") {
-      runtime2.log(`new question retrieved ${block.text.trim()}`);
-      return block.text.trim();
-    }
-  }
-  runtime2.log("no question retrieved");
-  return null;
-}
-async function onMarketCreation(runtime2) {
-  const { network: network248, evmConfig } = setup(runtime2);
+var onDepositCollaterals = (runtime2) => {
+  const { network: network248 } = setup(runtime2);
   const evmClient = new ClientCapability(network248.chainSelector.selector);
-  const newQuest = getMarketQuestion(runtime2).then((quest) => {
-    runtime2.log("signing a report");
-    const signedReport = reportSign(runtime2, "(string _topic, uint256 deadline, uint256 timeDelay, uint256 minFunds, uint8 maxTeamAllowed) marketData, string marketCreationAction ", [
-      [
-        "who's winning between USA vs IRAN?",
-        0n,
-        0n,
-        10000000000000000000n,
-        6
-      ],
-      "create market"
-    ]);
-    runtime2.log("writing a report");
-    const marketWriteResult = reportWrite(runtime2, signedReport, evmConfig, evmClient, evmConfig.marketAddress);
-    const txHash = bytesToHex(marketWriteResult?.txHash || new Uint8Array(32));
-    runtime2.log(`market creation hash ${txHash}`);
-  }).catch((err) => {
-    runtime2.log(`"[MARKET]: failed creating market" ${err}`);
-  });
-}
-var onCronTrigger = async (runtime2) => {
-  const { evmConfig, network: network248 } = setup(runtime2);
-  const evmClient = new ClientCapability(network248.chainSelector.selector);
-  const res = await onMarketCreation(runtime2);
-  runtime2.log(`market creation result ${res}`);
-  return "market created";
+  const tokenValuesInUsd = fetchTokensPrices(runtime2, evmClient, supportedTokensPriceFeeds);
+  runtime2.log("COLLATERALS DEPOSITED");
+  return "Collaterals";
 };
 var initWorkflow = (config) => {
   const cron = new CronCapability;
   return [
-    handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)
+    handler(cron.trigger({ schedule: config.schedule }), onDepositCollaterals)
   ];
 };
 async function main() {
