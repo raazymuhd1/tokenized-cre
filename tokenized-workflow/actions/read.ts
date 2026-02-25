@@ -2,31 +2,11 @@ import type {
     Runtime,
     EVMClient
 } from "@chainlink/cre-sdk"
-import type { MarketResolvedStats, Config, EvmConfig, Token } from "../types"
+import type { Config, Token } from "../types"
 import { readOnchain } from "../helper"
-import { oracle } from "../contracts"
 import { ethers } from "ethers"
 import { aggregatorV3InterfaceABI } from "../contracts/abi/aggregatorV3"
 import { supportedTokensPriceFeeds } from "../constants"
-
-function checkIsMarketResolved(
-    runtime: Runtime<Config>, 
-    evmClient: EVMClient, 
-    evmConfig: EvmConfig,
-    marketId: string
-): boolean {
-    const decodedRes = readOnchain<MarketResolvedStats>(
-        runtime,
-        evmClient,
-        oracle,
-        "isMarketResolved",
-        evmConfig.oracleAddress,
-        [marketId]
-    )
-
-    runtime.log(`fetched market resolution info ${decodedRes} on-chain`)
-    return decodedRes.status
-}
 
 
 function fetchTokensPrices(runtime: Runtime<Config>, tokens: Token[]): string {
@@ -58,13 +38,13 @@ function fetchTokensPrices(runtime: Runtime<Config>, tokens: Token[]): string {
  * @param runtime 
  * @param tokens 
  */
-const calculateShare = (runtime: Runtime<Config>, tokens: Token[]) => {
+const calculateShare = (runtime: Runtime<Config>, tokens: Token[]): bigint => {
     const tokensValue = fetchTokensPrices(runtime, supportedTokensPriceFeeds.slice(0, 3))
 
-
+    return 100n
 }
 
 
 export {
-    checkIsMarketResolved
+    calculateShare
 }

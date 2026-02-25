@@ -81,6 +81,7 @@ type Token = {
    id: number;
    name: string;
    address: string;
+   amount: number;
 }
 
 export type {
