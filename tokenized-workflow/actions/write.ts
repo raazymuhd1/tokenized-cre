@@ -7,6 +7,8 @@ import { setup, reportSign, reportWrite } from "../helper"
 import type { Config, Token } from "../types"
 import { calculateShare } from "./read"
 
+// ------------------------------- WRITE FUNCTION S---------------------------------------
+
 function handleDepositCollaterals(
   runtime: Runtime<Config>,
   collaterals: Token[],

@@ -16886,7 +16886,7 @@ function fetchTokensPrices(runtime2, evmClient, tokens) {
     }
     const priceData = readOnchain(runtime2, evmClient, aggregatorV3_default, "latestRoundData", token.address, []);
     const tokenPriceResult = String(Object.values(priceData)[1]);
-    const actualPrice = Number(tokenPriceResult.slice(0, tokenPriceResult.length - 8));
+    const actualPrice = Number(tokenPriceResult.slice(0, tokenPriceResult.length - 9));
     runtime2.log(`price of token ${token.name} is ${actualPrice}`);
     tokenPricesInUsd.push([
       token.name,
