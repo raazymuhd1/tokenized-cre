@@ -14,12 +14,20 @@ const onDepositCollaterals = (runtime: Runtime<Config>): string => {
     // for production, this workflow needs to be triggered by external server when user wants to deposit collaterals
     // needs a http triggers capability implemented here to trigger deposit collaterals function
     const tokenValuesInUsd = fetchTokensPrices(runtime, evmClient,supportedTokensPriceFeeds)
-    // below is for testing
-    // const depositCollateralsHash = handleDepositCollaterals(
-    //   runtime, 
-    //   supportedTokensPriceFeeds, // test collaterals
-    //   USER // test user
-    // )
+
+    // try {
+      // below is for testing
+      // const depositCollateralsHash = handleDepositCollaterals(
+      //   runtime, 
+      //   supportedTokensPriceFeeds, // test collaterals
+      //   USER // test user
+      // )
+      
+      // runtime.log("COLLATERALS DEPOSITED")
+      // return "Collaterals" 
+    // } catch (error) {
+      
+    // }
     runtime.log("COLLATERALS DEPOSITED")
     return "Collaterals" 
 }
@@ -30,6 +38,7 @@ const onRedeemCollaterals = (runtime: Runtime<Config>): string  => {
        supportedTokensPriceFeeds,
        USER
     ) 
+    runtime.log("COLLATERALS REDEEMED")
     return redeemTxHash
 }
 

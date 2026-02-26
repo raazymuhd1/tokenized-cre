@@ -2,14 +2,18 @@ import type {
     Runtime,
     EVMClient
 } from "@chainlink/cre-sdk"
-import type { Config, Token } from "../types"
+import type { Config, Token, TokenPrices } from "../types"
 import { readOnchain } from "../helper"
-import { ethers } from "ethers"
 import { aggregatorV3Interface } from "../contracts"
 import { supportedTokensPriceFeeds } from "../constants"
 
-type TokenPrices = (string|bigint)[][]
-
+/**
+ * @dev fetching collaterals prices in USD
+ * @param runtime - runtime
+ * @param evmClient - evm client
+ * @param tokens - collaterals assets
+ * @returns 
+ */
 function fetchTokensPrices(
     runtime: Runtime<Config>, 
     evmClient: EVMClient,
@@ -37,12 +41,13 @@ function fetchTokensPrices(
             []
         )
 
-        const tokenPrice = String(Object.values(priceData)[1])
-        runtime.log(`price of token ${token.name} is ${tokenPrice.slice(0, tokenPrice.length-7)}`)
+        const tokenPriceResult = String(Object.values(priceData)[1])
+        const actualPrice = Number(tokenPriceResult.slice(0, tokenPriceResult.length-9))
+        runtime.log(`price of token ${token.name} is ${actualPrice}`)
 
         tokenPricesInUsd.push([
             token.name,
-            BigInt(Number(tokenPrice) * token.amount)
+            BigInt(Number(actualPrice) * token.amount)
         ]) 
 
         }
@@ -70,6 +75,8 @@ const calculateShare = (
         runtime.log(`[CALCULATING-SHARE]: token ${price[0]} is ${price[1]}`)
     })
 
+    runtime.log(`[CALCULATING-SHARE]: total values in USD ${totalCollateralValueInUsd}`)
+    // amount of shares to mint/burn
     return totalCollateralValueInUsd
 }
 

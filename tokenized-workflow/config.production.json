@@ -3,8 +3,7 @@
   "apiUrl": "http://localhost:5000/api/",
   "evms": [
     { 
-      "marketAddress": "0x346B553ef3928C4A2b55457ea2768e10a4bD144b",
-      "oracleAddress": "0xD26286188e477d67c69A81Db2C65Cbd6A19302b4",
+      "vaultAddress": "",
       "chainSelectorName": "ethereum-testnet-sepolia",
       "gasLimit": "500000"
     }

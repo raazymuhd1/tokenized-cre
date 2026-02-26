@@ -26,7 +26,7 @@ function handleDepositCollaterals(
         const signedReport = reportSign(runtime, 
        "bool isDeposit, uint256 tokenId, address user, address[] collaterals, uint256[] amounts, uint256 sharesToMint ", 
          [
-           true, // idDeposit
+           true, // isDeposit
            0, // tokenId
            user, // user addr
            filteredCollaterals, // collaterals
@@ -37,12 +37,12 @@ function handleDepositCollaterals(
      runtime.log('writing a collateral deposit report')
        
      // write a report
-     const depositColResult = reportWrite(runtime, signedReport, evmConfig, evmClient, evmConfig.marketAddress)
+     const depositColResult = reportWrite(runtime, signedReport, evmConfig, evmClient, evmConfig.vaultAddress)
      const txHash = bytesToHex(depositColResult?.txHash || new Uint8Array(32))
      runtime.log(`collateral deposit's hash ${txHash}`)
      return txHash;
     } catch (error) {
-        runtime.log(`[Deposit-Collateral]: something went wrong on deposit collateral ${error}`)
+        runtime.log(`[Deposit-Collateral]: something went wrong on depositing collateral ${error}`)
         return ""
     }
 }
@@ -54,14 +54,14 @@ function handleRedeemCollaterals(
 ): string {
     const { network, evmConfig } = setup(runtime)
     const evmClient = new EVMClient(network.chainSelector.selector)
-    const sharesToBurn = calculateShare(runtime, collaterals)
+    const sharesToBurn = calculateShare(runtime, collaterals, evmClient)
 
     try {
         runtime.log('signin a collateral redemption report')
         const signedReport = reportSign(runtime, 
        "bool isDeposit, uint256 tokenId, address user, uint256 sharesToBurn, address receiver", 
          [
-           false, // idDeposit
+           false, // isDeposit
            0, // tokenId
            user, // user addr
            sharesToBurn, // shares to burn
@@ -71,7 +71,7 @@ function handleRedeemCollaterals(
      runtime.log('writing a collateral redemption report')
        
      // write a report
-     const redeemResult = reportWrite(runtime, signedReport, evmConfig, evmClient, evmConfig.marketAddress)
+     const redeemResult = reportWrite(runtime, signedReport, evmConfig, evmClient, evmConfig.vaultAddress)
      const txHash = bytesToHex(redeemResult?.txHash || new Uint8Array(32))
      runtime.log(`collateral redemption's hash ${txHash}`)
      return txHash;

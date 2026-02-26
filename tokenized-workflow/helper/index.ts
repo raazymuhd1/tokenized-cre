@@ -1,13 +1,24 @@
 import { 
     EVMClient,
-    Report, type Runtime, getNetwork, hexToBase64,
+    Report, 
+    type Runtime, 
+    getNetwork, 
+    hexToBase64,
     LATEST_BLOCK_NUMBER,
     encodeCallMsg
 } from "@chainlink/cre-sdk";
-import { encodeAbiParameters, parseAbiParameters, zeroAddress, encodeFunctionData, decodeFunctionResult, Address, bytesToHex, Abi } from "viem"
-import type { Config, EvmConfig, SetupData, MappedReadOnchain } from "../types";
+import { 
+    encodeAbiParameters, 
+    parseAbiParameters, 
+    zeroAddress, 
+    encodeFunctionData, 
+    decodeFunctionResult, 
+    Address, 
+    bytesToHex, 
+    Abi 
+} from "viem"
+import type { Config, EvmConfig, SetupData, MappedReadOnchain, HexString } from "../types";
 
-type HexString = `0x${string}`
 
 function setup(runtime: Runtime<Config>): SetupData {
     const config = runtime.config;
@@ -54,6 +65,15 @@ function reportSign(runtime: Runtime<Config>, typing: string, data: any[] | any[
     return signedReport
 }
 
+/**
+ * @dev on-chain write setup
+ * @param runtime - cre runtime
+ * @param signedReport - signed report
+ * @param evmConfig - evm chain config
+ * @param evmClient - evm capability
+ * @param receiver - consumer contract
+ * @returns 
+ */
 function reportWrite(runtime: Runtime<Config>, signedReport: Report, evmConfig: EvmConfig, evmClient: EVMClient, receiver: string) {
        const marketWriteResult = evmClient.writeReport(runtime, {
             receiver,
@@ -67,6 +87,16 @@ function reportWrite(runtime: Runtime<Config>, signedReport: Report, evmConfig: 
     return marketWriteResult
 }
 
+/**
+ * @dev on-chain read setup
+ * @param runtime 
+ * @param evmClient 
+ * @param contractAbi 
+ * @param funcName 
+ * @param contractAddr 
+ * @param args 
+ * @returns 
+ */
 function readOnchain<T>(
     runtime: Runtime<Config>,
     evmClient: EVMClient,
